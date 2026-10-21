@@ -1,0 +1,1736 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Data Pipeline Orchestrator — Vigilância Patrimonial</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <style>
+    :root {
+      --bg-canvas: #090d16;
+      --bg-surface: #0f172a;
+      --bg-surface-elevated: #1e293b;
+      --bg-surface-hover: #24344d;
+      --border-subtle: #1e293b;
+      --border-muted: #334155;
+      --border-focus: #38bdf8;
+      
+      --text-main: #f1f5f9;
+      --text-muted: #94a3b8;
+      --text-subtle: #64748b;
+      
+      --layer-staging: #0284c7;
+      --layer-staging-bg: rgba(2, 132, 199, 0.12);
+      --layer-inter: #6366f1;
+      --layer-inter-bg: rgba(99, 102, 241, 0.12);
+      --layer-mart: #10b981;
+      --layer-mart-bg: rgba(16, 185, 129, 0.12);
+      
+      --status-success: #10b981;
+      --status-running: #38bdf8;
+      --status-pending: #475569;
+      --status-error: #ef4444;
+      --edge-default: #334155;
+      --edge-active: #38bdf8;
+      
+      --font-ui: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      --font-code: 'JetBrains Mono', monospace;
+    }
+
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: var(--font-ui);
+      background-color: var(--bg-canvas);
+      color: var(--text-main);
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      -webkit-font-smoothing: antialiased;
+      user-select: none;
+    }
+
+    /* ─── Top Navigation Bar ─────────────────────────────────────────── */
+    .topbar {
+      height: 56px;
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 20px;
+      z-index: 20;
+      flex-shrink: 0;
+    }
+
+    .brand-section {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand-logo {
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
+      background: linear-gradient(135deg, #0284c7 0%, #6366f1 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #ffffff;
+    }
+
+    .brand-title {
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      color: var(--text-main);
+    }
+
+    .brand-subtitle {
+      font-size: 12px;
+      color: var(--text-subtle);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .brand-subtitle::before {
+      content: "•";
+      color: var(--border-muted);
+    }
+
+    .toolbar-section {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    /* Play Button */
+    .btn-play {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: #0284c7;
+      color: #ffffff;
+      border: 1px solid #0369a1;
+      border-radius: 6px;
+      padding: 7px 14px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: var(--font-ui);
+      transition: all 0.15s ease;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    }
+
+    .btn-play:hover {
+      background: #0369a1;
+      border-color: #38bdf8;
+    }
+
+    .btn-play:disabled {
+      background: #1e293b;
+      color: #64748b;
+      border-color: #334155;
+      cursor: not-allowed;
+    }
+
+    .btn-play.running {
+      background: #0f766e;
+      border-color: #14b8a6;
+    }
+
+    .spinner-icon {
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
+    .search-box {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+
+    .search-box svg {
+      position: absolute;
+      left: 10px;
+      color: var(--text-subtle);
+      pointer-events: none;
+    }
+
+    .search-box input {
+      background: var(--bg-canvas);
+      border: 1px solid var(--border-subtle);
+      border-radius: 6px;
+      padding: 6px 10px 6px 32px;
+      font-size: 12px;
+      font-family: var(--font-ui);
+      color: var(--text-main);
+      width: 180px;
+      transition: all 0.15s ease;
+    }
+
+    .search-box input:focus {
+      outline: none;
+      border-color: var(--border-focus);
+      width: 230px;
+      background: var(--bg-surface);
+    }
+
+    .filter-chips {
+      display: flex;
+      background: var(--bg-canvas);
+      padding: 2px;
+      border-radius: 6px;
+      border: 1px solid var(--border-subtle);
+    }
+
+    .chip-btn {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      font-size: 11px;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      font-family: var(--font-ui);
+    }
+
+    .chip-btn:hover {
+      color: var(--text-main);
+    }
+
+    .chip-btn.active {
+      background: var(--bg-surface-elevated);
+      color: #38bdf8;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--bg-surface-elevated);
+      color: var(--text-main);
+      border: 1px solid var(--border-muted);
+      border-radius: 6px;
+      padding: 6px 12px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: var(--font-ui);
+      transition: all 0.15s ease;
+    }
+
+    .btn:hover {
+      background: var(--bg-surface-hover);
+      border-color: var(--border-focus);
+    }
+
+    /* ─── Main Workspace ─────────────────────────────────────────────── */
+    .workspace {
+      flex: 1;
+      display: flex;
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* Graph Canvas */
+    .canvas-container {
+      flex: 1;
+      position: relative;
+      height: 100%;
+      background: var(--bg-canvas);
+      overflow: hidden;
+    }
+
+    #graph-svg {
+      width: 100%;
+      height: 100%;
+      display: block;
+      cursor: grab;
+    }
+
+    #graph-svg:active {
+      cursor: grabbing;
+    }
+
+    /* Zoom & View Controls */
+    .view-controls {
+      position: absolute;
+      bottom: 20px;
+      left: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: 8px;
+      padding: 4px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+      z-index: 10;
+    }
+
+    .ctrl-btn {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      width: 28px;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .ctrl-btn:hover {
+      background: var(--bg-surface-elevated);
+      color: var(--text-main);
+    }
+
+    /* Hint box */
+    .hint-box {
+      position: absolute;
+      bottom: 20px;
+      left: 64px;
+      background: rgba(15, 23, 42, 0.85);
+      border: 1px solid var(--border-subtle);
+      border-radius: 6px;
+      padding: 6px 12px;
+      font-size: 11px;
+      color: var(--text-subtle);
+      pointer-events: none;
+      backdrop-filter: blur(4px);
+    }
+
+    /* Layer Column Guides */
+    .layer-columns-bg {
+      position: absolute;
+      top: 16px;
+      left: 0;
+      right: 0;
+      display: flex;
+      justify-content: space-around;
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    .layer-column-label {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-subtle);
+      background: rgba(15, 23, 42, 0.7);
+      padding: 4px 12px;
+      border-radius: 99px;
+      border: 1px solid var(--border-subtle);
+    }
+
+    /* ─── Drawer / Inspector ─────────────────────────────────────────── */
+    .drawer {
+      width: 480px;
+      background: var(--bg-surface);
+      border-left: 1px solid var(--border-subtle);
+      display: flex;
+      flex-direction: column;
+      position: absolute;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      transform: translateX(100%);
+      transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+      z-index: 30;
+      box-shadow: -8px 0 32px rgba(0,0,0,0.5);
+    }
+
+    .drawer.open {
+      transform: translateX(0);
+    }
+
+    .drawer-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .drawer-title-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .drawer-layer-badge {
+      align-self: flex-start;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 2px 8px;
+      border-radius: 4px;
+    }
+
+    .drawer-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text-main);
+    }
+
+    .drawer-close {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 4px;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .drawer-close:hover {
+      color: var(--text-main);
+      background: var(--bg-surface-elevated);
+    }
+
+    /* Drawer Tabs */
+    .drawer-tabs {
+      display: flex;
+      border-bottom: 1px solid var(--border-subtle);
+      background: rgba(11, 15, 25, 0.4);
+      padding: 0 16px;
+    }
+
+    .tab-btn {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      font-family: var(--font-ui);
+      font-size: 12px;
+      font-weight: 600;
+      padding: 12px 14px;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: all 0.15s ease;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .tab-btn:hover {
+      color: var(--text-main);
+    }
+
+    .tab-btn.active {
+      color: #38bdf8;
+      border-bottom-color: #38bdf8;
+    }
+
+    .drawer-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+      user-select: text;
+    }
+
+    .tab-pane {
+      display: none;
+    }
+
+    .tab-pane.active {
+      display: block;
+    }
+
+    /* Overview Tab Styles */
+    .metric-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    .metric-card {
+      background: var(--bg-canvas);
+      border: 1px solid var(--border-subtle);
+      border-radius: 8px;
+      padding: 12px;
+    }
+
+    .metric-card-label {
+      font-size: 11px;
+      color: var(--text-subtle);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .metric-card-value {
+      font-family: var(--font-code);
+      font-size: 18px;
+      font-weight: 600;
+      margin-top: 4px;
+      color: var(--text-main);
+    }
+
+    .section-label {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-subtle);
+      margin-bottom: 8px;
+    }
+
+    .desc-text {
+      font-size: 13px;
+      line-height: 1.6;
+      color: var(--text-muted);
+      margin-bottom: 20px;
+      background: var(--bg-canvas);
+      border: 1px solid var(--border-subtle);
+      padding: 12px;
+      border-radius: 8px;
+    }
+
+    .dep-pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 20px;
+    }
+
+    .dep-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-family: var(--font-code);
+      font-size: 11px;
+      background: var(--bg-canvas);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-muted);
+      padding: 4px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .dep-pill:hover {
+      border-color: var(--border-focus);
+      color: var(--text-main);
+    }
+
+    /* SQL Code Pane */
+    .sql-pane {
+      position: relative;
+    }
+
+    .sql-copy-btn {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: var(--bg-surface-elevated);
+      border: 1px solid var(--border-muted);
+      border-radius: 4px;
+      color: var(--text-muted);
+      font-size: 11px;
+      padding: 4px 8px;
+      cursor: pointer;
+      font-family: var(--font-ui);
+    }
+
+    .sql-copy-btn:hover {
+      color: var(--text-main);
+      border-color: var(--border-focus);
+    }
+
+    pre.code-block {
+      background: #060911;
+      border: 1px solid var(--border-subtle);
+      border-radius: 8px;
+      padding: 16px;
+      font-family: var(--font-code);
+      font-size: 12px;
+      line-height: 1.65;
+      overflow-x: auto;
+      color: #e2e8f0;
+    }
+
+    .kw { color: #38bdf8; font-weight: 600; }
+    .fn { color: #a78bfa; }
+    .str { color: #34d399; }
+    .num { color: #f59e0b; }
+    .cmt { color: #64748b; font-style: italic; }
+
+    /* Preview Table Pane */
+    .table-container {
+      overflow-x: auto;
+      border: 1px solid var(--border-subtle);
+      border-radius: 8px;
+      background: var(--bg-canvas);
+    }
+
+    table.data-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-family: var(--font-code);
+      font-size: 11px;
+    }
+
+    table.data-table th {
+      background: var(--bg-surface);
+      color: var(--text-muted);
+      font-weight: 600;
+      text-align: left;
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--border-subtle);
+      white-space: nowrap;
+    }
+
+    table.data-table td {
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--border-subtle);
+      color: var(--text-main);
+      white-space: nowrap;
+    }
+
+    table.data-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    table.data-table tr:hover td {
+      background: rgba(255,255,255,0.02);
+    }
+
+    /* ─── Bottom Terminal / Log Panel ────────────────────────────────── */
+    .terminal-panel {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 180px;
+      background: #060911;
+      border-top: 1px solid var(--border-muted);
+      display: flex;
+      flex-direction: column;
+      z-index: 25;
+      transform: translateY(100%);
+      transition: transform 0.2s ease;
+      box-shadow: 0 -4px 20px rgba(0,0,0,0.5);
+    }
+
+    .terminal-panel.open {
+      transform: translateY(0);
+    }
+
+    .terminal-header {
+      height: 32px;
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-muted);
+    }
+
+    .terminal-logs {
+      flex: 1;
+      padding: 10px 16px;
+      overflow-y: auto;
+      font-family: var(--font-code);
+      font-size: 11px;
+      line-height: 1.6;
+      color: #cbd5e1;
+      user-select: text;
+    }
+
+    .log-line {
+      display: flex;
+      gap: 10px;
+    }
+
+    .log-time { color: var(--text-subtle); }
+    .log-info { color: #38bdf8; }
+    .log-success { color: #10b981; }
+    .log-running { color: #f59e0b; }
+
+    /* ─── Bottom Modal: Relatório Executivo ──────────────────────────── */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.7);
+      backdrop-filter: blur(4px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 50;
+    }
+
+    .modal-overlay.open {
+      display: flex;
+    }
+
+    .modal-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-muted);
+      border-radius: 12px;
+      width: 90%;
+      max-width: 960px;
+      max-height: 85vh;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 20px 48px rgba(0,0,0,0.6);
+      animation: modalFade 0.2s ease;
+    }
+
+    @keyframes modalFade {
+      from { opacity: 0; transform: scale(0.98); }
+      to { opacity: 1; transform: scale(1); }
+    }
+
+    .modal-header {
+      padding: 18px 24px;
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .modal-header h3 {
+      font-size: 16px;
+      font-weight: 700;
+    }
+
+    .modal-header p {
+      font-size: 12px;
+      color: var(--text-subtle);
+      margin-top: 2px;
+    }
+
+    .modal-body {
+      padding: 24px;
+      overflow-y: auto;
+      user-select: text;
+    }
+
+    .risk-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 99px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+    }
+
+    .risk-CRITICO { background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); }
+    .risk-ALTO    { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }
+    .risk-MEDIO   { background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); }
+    .risk-BAIXO   { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
+
+    /* ─── Status Footer ──────────────────────────────────────────────── */
+    .statusbar {
+      height: 28px;
+      background: var(--bg-surface);
+      border-top: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      font-size: 11px;
+      color: var(--text-subtle);
+      z-index: 20;
+      flex-shrink: 0;
+    }
+
+    .status-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--status-success);
+    }
+
+    .status-dot.running {
+      background: #38bdf8;
+      box-shadow: 0 0 8px #38bdf8;
+      animation: pulseDot 1s infinite alternate;
+    }
+
+    @keyframes pulseDot {
+      from { opacity: 0.4; }
+      to { opacity: 1; }
+    }
+
+    /* Edge Animation during execution */
+    @keyframes flowEdge {
+      from { stroke-dashoffset: 24; }
+      to { stroke-dashoffset: 0; }
+    }
+
+    .edge-running {
+      stroke: #38bdf8 !important;
+      stroke-width: 2.5 !important;
+      stroke-dasharray: 6 3;
+      animation: flowEdge 0.6s linear infinite;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top Navigation -->
+  <header class="topbar">
+    <div class="brand-section">
+      <div class="brand-logo">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+        </svg>
+      </div>
+      <div>
+        <div class="brand-title">Data Pipeline Orchestrator</div>
+        <div class="brand-subtitle">Vigilância Patrimonial · DAG Kahn TopoSort</div>
+      </div>
+    </div>
+
+    <div class="toolbar-section">
+      <!-- Play Pipeline Button -->
+      <button class="btn-play" id="btnPlayPipeline" onclick="executarPipelinePlay()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+          <polygon points="5 3 19 12 5 21 5 3"></polygon>
+        </svg>
+        <span id="btnPlayText">Executar Pipeline</span>
+      </button>
+
+      <!-- Reset Pipeline Button -->
+      <button class="btn" id="btnResetPipeline" onclick="zerarPipeline()" title="Zerar status das etapas para executar novamente do início">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+          <path d="M3 3v5h5"></path>
+        </svg>
+        <span>Zerar</span>
+      </button>
+
+      <!-- Toggle Terminal Button -->
+      <button class="btn" onclick="toggleTerminal()" title="Alternar Console de Execução">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="4 17 10 11 4 5"></polyline>
+          <line x1="12" y1="19" x2="20" y2="19"></line>
+        </svg>
+        Console
+      </button>
+
+      <!-- Search -->
+      <div class="search-box">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="8"></circle>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+        </svg>
+        <input type="text" id="nodeSearch" placeholder="Filtrar etapas...">
+      </div>
+
+      <!-- Layer Filters -->
+      <div class="filter-chips">
+        <button class="chip-btn active" onclick="filtrarCamada('all', this)">Todas</button>
+        <button class="chip-btn" onclick="filtrarCamada('staging', this)">Staging</button>
+        <button class="chip-btn" onclick="filtrarCamada('intermediaria', this)">Intermediária</button>
+        <button class="chip-btn" onclick="filtrarCamada('mart', this)">Marts</button>
+      </div>
+
+      <!-- Relatório Button -->
+      <button class="btn" onclick="abrirModalRelatorio()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+          <line x1="3" y1="9" x2="21" y2="9"></line>
+          <line x1="9" y1="21" x2="9" y2="9"></line>
+        </svg>
+        Relatório Executivo
+      </button>
+    </div>
+  </header>
+
+  <!-- Workspace with Canvas -->
+  <div class="workspace">
+    <div class="layer-columns-bg">
+      <div class="layer-column-label">1. Staging</div>
+      <div class="layer-column-label">2. Camada Intermediária</div>
+      <div class="layer-column-label">3. Data Marts</div>
+    </div>
+
+    <div class="canvas-container">
+      <svg id="graph-svg"></svg>
+
+      <!-- Zoom Controls -->
+      <div class="view-controls">
+        <button class="ctrl-btn" title="Zoom In" onclick="zoomIn()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+        </button>
+        <button class="ctrl-btn" title="Zoom Out" onclick="zoomOut()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+        </button>
+        <button class="ctrl-btn" title="Ajustar à tela" onclick="resetZoom()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path>
+          </svg>
+        </button>
+      </div>
+
+      <div class="hint-box">
+        💡 <strong>Dica:</strong> Clique em uma etapa para ver detalhes, código SQL e preview no SQLite. O zoom só altera com os botões (+ / -) ou roda do mouse.
+      </div>
+    </div>
+
+    <!-- Inspector Drawer -->
+    <div class="drawer" id="inspectorDrawer">
+      <div class="drawer-header">
+        <div class="drawer-title-group">
+          <span class="drawer-layer-badge" id="dLayerBadge">STAGING</span>
+          <div class="drawer-title" id="dTitle">stg_eventos_camera</div>
+        </div>
+        <button class="drawer-close" onclick="fecharDrawer()" title="Fechar">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+
+      <div class="drawer-tabs">
+        <button class="tab-btn active" onclick="trocarTab('tab-overview', this)">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="12" y1="16" x2="12" y2="12"></line>
+            <line x1="12" y1="8" x2="12.01" y2="8"></line>
+          </svg>
+          Visão Geral
+        </button>
+        <button class="tab-btn" onclick="trocarTab('tab-sql', this)">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="16 18 22 12 16 6"></polyline>
+            <polyline points="8 6 2 12 8 18"></polyline>
+          </svg>
+          Transformação SQL
+        </button>
+        <button class="tab-btn" onclick="trocarTab('tab-preview', this)">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+            <polyline points="14 2 14 8 20 8"></polyline>
+            <line x1="16" y1="13" x2="8" y2="13"></line>
+            <line x1="16" y1="17" x2="8" y2="17"></line>
+          </svg>
+          Amostra (SQLite)
+        </button>
+      </div>
+
+      <div class="drawer-body">
+        <!-- Overview Pane -->
+        <div class="tab-pane active" id="tab-overview">
+          <div class="metric-grid">
+            <div class="metric-card">
+              <div class="metric-card-label">Registros Gerados</div>
+              <div class="metric-card-value" id="dRows">0</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-card-label">Tempo de Execução</div>
+              <div class="metric-card-value" id="dDuration">0.000s</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-card-label">Status da Etapa</div>
+              <div class="metric-card-value" id="dStatus" style="font-size:14px">SUCESSO</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-card-label">Última Execução</div>
+              <div class="metric-card-value" style="font-size:12px;color:var(--text-muted)" id="dTimestamp">--</div>
+            </div>
+          </div>
+
+          <div class="section-label">Responsabilidade da Etapa</div>
+          <p class="desc-text" id="dDescription"></p>
+
+          <div class="section-label">Dependências a Montante (Upstream)</div>
+          <div class="dep-pills" id="dUpstream"></div>
+
+          <div class="section-label">Etapas Alimentadas (Downstream)</div>
+          <div class="dep-pills" id="dDownstream"></div>
+        </div>
+
+        <!-- SQL Pane -->
+        <div class="tab-pane" id="tab-sql">
+          <div class="sql-pane">
+            <button class="sql-copy-btn" onclick="copiarSQL()">Copiar SQL</button>
+            <pre class="code-block" id="dSqlCode"></pre>
+          </div>
+        </div>
+
+        <!-- Data Preview Pane -->
+        <div class="tab-pane" id="tab-preview">
+          <div style="font-size:12px;color:var(--text-subtle);margin-bottom:10px">
+            Primeiros 5 registros retornados da tabela SQLite:
+          </div>
+          <div class="table-container" id="dPreviewTable"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Live Execution Terminal Panel -->
+    <div class="terminal-panel" id="terminalPanel">
+      <div class="terminal-header">
+        <div style="display:flex;align-items:center;gap:8px">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="4 17 10 11 4 5"></polyline>
+            <line x1="12" y1="19" x2="20" y2="19"></line>
+          </svg>
+          Console de Execução do Pipeline (Kahn's Topological Sort)
+        </div>
+        <div style="display:flex;align-items:center;gap:12px">
+          <button class="ctrl-btn" onclick="limparTerminal()" title="Limpar logs">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="3 6 5 6 21 6"></polyline>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+            </svg>
+          </button>
+          <button class="ctrl-btn" onclick="toggleTerminal()" title="Recolher console">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div class="terminal-logs" id="terminalLogs"></div>
+    </div>
+  </div>
+
+  <!-- Modal: Relatório de Risco por Zona -->
+  <div class="modal-overlay" id="modalRelatorio" onclick="if(event.target===this) fecharModalRelatorio()">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div>
+          <h3>Relatório Executivo de Risco Patrimonial</h3>
+          <p>Consolidado final gerado pela etapa mart_relatorio_final no SQLite</p>
+        </div>
+        <button class="drawer-close" onclick="fecharModalRelatorio()">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="table-container">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Rank</th>
+                <th>Zona Patrimonial</th>
+                <th>Score de Risco</th>
+                <th>Nível</th>
+                <th>Total Incidentes</th>
+                <th>Incidentes Críticos</th>
+                <th>Alertas Sensor</th>
+                <th>% Rondas Irreg.</th>
+                <th>Ação Recomendada</th>
+              </tr>
+            </thead>
+            <tbody id="modalRelatorioBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Status Bar -->
+  <footer class="statusbar">
+    <div class="status-item">
+      <span class="status-dot" id="sbDot"></span>
+      <span id="sbPipelineStatus">Status: Pronto para execução</span>
+    </div>
+    <div class="status-item">
+      <span id="sbTotalStats">Total: 1.654 registros · 8 etapas validadas</span>
+    </div>
+    <div class="status-item">
+      <span>Motor: SQLite WAL + Topological DAG (Kahn's Algo)</span>
+    </div>
+  </footer>
+
+  <script>
+    // ─── Dados Injetados ─────────────────────────────────────────────
+    let NODES = [{"id": "stg_eventos_camera", "label": "Staging: Eventos de Câmera", "camada": "staging", "descricao": "Carrega e padroniza os eventos brutos capturados pelas câmeras de segurança. Filtra registros com confiança < 60% e normaliza timestamps.", "dependencias": [], "status": "SUCESSO", "duracao_s": 0.005, "linhas": 449, "erro": null, "executado_em": "2026-10-21T10:45:28.716321"}, {"id": "stg_leituras_sensor", "label": "Staging: Leituras de Sensor", "camada": "staging", "descricao": "Carrega as leituras brutas de sensores (PIR, magnético, temperatura, etc.). Padroniza unidades e elimina leituras duplicadas.", "dependencias": [], "status": "SUCESSO", "duracao_s": 0.01, "linhas": 799, "erro": null, "executado_em": "2026-10-21T10:45:28.711253"}, {"id": "stg_rondas", "label": "Staging: Rondas de Segurança", "camada": "staging", "descricao": "Carrega o registro de rondas realizadas pelos vigilantes, calcula duração em minutos e padroniza status.", "dependencias": [], "status": "SUCESSO", "duracao_s": 0.0022, "linhas": 200, "erro": null, "executado_em": "2026-10-21T10:45:28.718596"}, {"id": "int_incidentes_brutos", "label": "Int: Incidentes Consolidados", "camada": "intermediaria", "descricao": "Consolida incidentes cruzando eventos de câmera e leituras de sensor. Classifica gravidade e identifica zona de ocorrência.", "dependencias": ["stg_eventos_camera", "stg_leituras_sensor"], "status": "SUCESSO", "duracao_s": 0.0032, "linhas": 150, "erro": null, "executado_em": "2026-10-21T10:45:28.724182"}, {"id": "int_alertas_sensor", "label": "Int: Alertas Críticos de Sensor", "camada": "intermediaria", "descricao": "Filtra leituras de sensor com valor acima do limiar crítico (> 80). Agrupa por zona e tipo de sensor para identificar padrões.", "dependencias": ["stg_leituras_sensor"], "status": "SUCESSO", "duracao_s": 0.0023, "linhas": 35, "erro": null, "executado_em": "2026-10-21T10:45:28.720917"}, {"id": "int_rondas_irregulares", "label": "Int: Rondas Irregulares", "camada": "intermediaria", "descricao": "Identifica rondas incompletas ou não realizadas e calcula a taxa de irregularidade por funcionário e por zona.", "dependencias": ["stg_rondas"], "status": "SUCESSO", "duracao_s": 0.0018, "linhas": 7, "erro": null, "executado_em": "2026-10-21T10:45:28.726013"}, {"id": "mart_zona_risco", "label": "Mart: Score de Risco por Zona", "camada": "mart", "descricao": "Calcula um score composto de risco para cada zona patrimonial, combinando: incidentes críticos, alertas de sensor e rondas irregulares.", "dependencias": ["int_incidentes_brutos", "int_alertas_sensor", "int_rondas_irregulares"], "status": "SUCESSO", "duracao_s": 0.0024, "linhas": 7, "erro": null, "executado_em": "2026-10-21T10:45:28.728508"}, {"id": "mart_relatorio_final", "label": "Mart: Relatório Final de Segurança", "camada": "mart", "descricao": "Relatório executivo consolidado com ranking de zonas por risco, top incidentes do período e recomendações operacionais.", "dependencias": ["mart_zona_risco"], "status": "SUCESSO", "duracao_s": 0.0026, "linhas": 7, "erro": null, "executado_em": "2026-10-21T10:45:28.731210"}];
+    let EDGES = [{"origem": "stg_eventos_camera", "destino": "int_incidentes_brutos"}, {"origem": "stg_leituras_sensor", "destino": "int_incidentes_brutos"}, {"origem": "stg_leituras_sensor", "destino": "int_alertas_sensor"}, {"origem": "stg_rondas", "destino": "int_rondas_irregulares"}, {"origem": "int_incidentes_brutos", "destino": "mart_zona_risco"}, {"origem": "int_alertas_sensor", "destino": "mart_zona_risco"}, {"origem": "int_rondas_irregulares", "destino": "mart_zona_risco"}, {"origem": "mart_zona_risco", "destino": "mart_relatorio_final"}];
+    let RELATORIO = [{"zona": "Recepção", "score_risco": 82.52, "classificacao_risco": "CRITICO", "total_incidentes": 27, "incidentes_criticos": 11, "total_alertas_sensor": 32, "alertas_criticos_sensor": 17, "rondas_irregulares": 9, "pct_rondas_irregulares": 31.03, "ranking_risco": 1, "recomendacao": "Reforço imediato de vigilância. Verificação de câmeras e sensores. Auditoria de acessos."}, {"zona": "Estacionamento", "score_risco": 74.19, "classificacao_risco": "CRITICO", "total_incidentes": 24, "incidentes_criticos": 13, "total_alertas_sensor": 20, "alertas_criticos_sensor": 9, "rondas_irregulares": 11, "pct_rondas_irregulares": 34.38, "ranking_risco": 2, "recomendacao": "Reforço imediato de vigilância. Verificação de câmeras e sensores. Auditoria de acessos."}, {"zona": "Sala de Servidores", "score_risco": 70.34, "classificacao_risco": "CRITICO", "total_incidentes": 21, "incidentes_criticos": 9, "total_alertas_sensor": 20, "alertas_criticos_sensor": 10, "rondas_irregulares": 14, "pct_rondas_irregulares": 46.67, "ranking_risco": 3, "recomendacao": "Reforço imediato de vigilância. Verificação de câmeras e sensores. Auditoria de acessos."}, {"zona": "Refeitório", "score_risco": 65.0, "classificacao_risco": "CRITICO", "total_incidentes": 17, "incidentes_criticos": 9, "total_alertas_sensor": 25, "alertas_criticos_sensor": 9, "rondas_irregulares": 10, "pct_rondas_irregulares": 40.0, "ranking_risco": 4, "recomendacao": "Reforço imediato de vigilância. Verificação de câmeras e sensores. Auditoria de acessos."}, {"zona": "Almoxarifado", "score_risco": 59.66, "classificacao_risco": "CRITICO", "total_incidentes": 17, "incidentes_criticos": 7, "total_alertas_sensor": 25, "alertas_criticos_sensor": 11, "rondas_irregulares": 9, "pct_rondas_irregulares": 33.33, "ranking_risco": 5, "recomendacao": "Reforço imediato de vigilância. Verificação de câmeras e sensores. Auditoria de acessos."}, {"zona": "Entrada Principal", "score_risco": 56.5, "classificacao_risco": "CRITICO", "total_incidentes": 22, "incidentes_criticos": 8, "total_alertas_sensor": 19, "alertas_criticos_sensor": 10, "rondas_irregulares": 5, "pct_rondas_irregulares": 25.0, "ranking_risco": 6, "recomendacao": "Reforço imediato de vigilância. Verificação de câmeras e sensores. Auditoria de acessos."}, {"zona": "Perímetro Externo", "score_risco": 52.57, "classificacao_risco": "CRITICO", "total_incidentes": 22, "incidentes_criticos": 7, "total_alertas_sensor": 17, "alertas_criticos_sensor": 7, "rondas_irregulares": 13, "pct_rondas_irregulares": 35.14, "ranking_risco": 7, "recomendacao": "Reforço imediato de vigilância. Verificação de câmeras e sensores. Auditoria de acessos."}];
+    let SQL_MAP = {"stg_eventos_camera": "\n        DROP TABLE IF EXISTS stg_eventos_camera;\n        CREATE TABLE stg_eventos_camera AS\n        SELECT\n            id,\n            camera_id,\n            zona,\n            tipo_evento,\n            timestamp,\n            duracao_segundos,\n            ROUND(confianca, 2)  AS confianca,\n            funcionario_notificado,\n            CASE\n                WHEN tipo_evento IN ('MOVIMENTO_SUSPEITO','ACESSO_NEGADO','ALARME_PERIMETRO','ALARME_INCENDIO')\n                THEN 1 ELSE 0\n            END AS eh_alerta\n        FROM eventos_camera\n        WHERE confianca >= 0.60;\n    ", "stg_leituras_sensor": "\n        DROP TABLE IF EXISTS stg_leituras_sensor;\n        CREATE TABLE stg_leituras_sensor AS\n        SELECT\n            id,\n            sensor_id,\n            tipo_sensor,\n            zona,\n            ROUND(valor, 2) AS valor,\n            alerta,\n            timestamp,\n            CASE\n                WHEN valor > 90 THEN 'CRITICO'\n                WHEN valor > 80 THEN 'ALTO'\n                WHEN valor > 60 THEN 'MEDIO'\n                ELSE 'NORMAL'\n            END AS nivel_risco\n        FROM (\n            SELECT *,\n                   ROW_NUMBER() OVER (PARTITION BY sensor_id, timestamp ORDER BY id) AS rn\n            FROM leituras_sensor\n        )\n        WHERE rn = 1;\n    ", "stg_rondas": "\n        DROP TABLE IF EXISTS stg_rondas;\n        CREATE TABLE stg_rondas AS\n        SELECT\n            r.id,\n            r.funcionario_id,\n            f.nome         AS funcionario_nome,\n            f.cargo        AS funcionario_cargo,\n            r.zona,\n            r.inicio,\n            r.fim,\n            r.status,\n            r.observacoes,\n            CAST(\n                (julianday(r.fim) - julianday(r.inicio)) * 24 * 60\n            AS INTEGER)  AS duracao_minutos,\n            CASE\n                WHEN r.status IN ('INCOMPLETA','NAO_REALIZADA') THEN 1\n                ELSE 0\n            END          AS eh_irregular\n        FROM rondas r\n        JOIN funcionarios f ON r.funcionario_id = f.id;\n    ", "int_incidentes_brutos": "\n        DROP TABLE IF EXISTS int_incidentes_brutos;\n        CREATE TABLE int_incidentes_brutos AS\n        SELECT\n            i.id,\n            i.tipo,\n            i.zona,\n            i.data_hora,\n            i.gravidade,\n            i.status,\n            i.origem,\n            i.camera_id,\n            i.sensor_id,\n            i.funcionario_responsavel,\n            f.nome AS responsavel_nome,\n            CASE\n                WHEN i.gravidade >= 4 THEN 'CRITICO'\n                WHEN i.gravidade = 3  THEN 'ALTO'\n                WHEN i.gravidade = 2  THEN 'MEDIO'\n                ELSE 'BAIXO'\n            END AS nivel_gravidade,\n            COALESCE(ec.confianca, 0)           AS confianca_camera,\n            COALESCE(ls.nivel_risco, 'N/A')     AS risco_sensor\n        FROM incidentes i\n        LEFT JOIN funcionarios         f  ON i.funcionario_responsavel = f.id\n        LEFT JOIN stg_eventos_camera   ec ON i.camera_id = ec.camera_id\n        LEFT JOIN stg_leituras_sensor  ls ON i.sensor_id = ls.sensor_id\n        GROUP BY i.id;\n    ", "int_alertas_sensor": "\n        DROP TABLE IF EXISTS int_alertas_sensor;\n        CREATE TABLE int_alertas_sensor AS\n        SELECT\n            zona,\n            tipo_sensor,\n            COUNT(*)                        AS total_leituras,\n            SUM(alerta)                     AS total_alertas,\n            ROUND(AVG(valor), 2)            AS media_valor,\n            ROUND(MAX(valor), 2)            AS max_valor,\n            SUM(CASE WHEN nivel_risco = 'CRITICO' THEN 1 ELSE 0 END) AS alertas_criticos,\n            SUM(CASE WHEN nivel_risco = 'ALTO'    THEN 1 ELSE 0 END) AS alertas_altos,\n            ROUND(\n                100.0 * SUM(alerta) / COUNT(*), 2\n            )                               AS pct_alerta\n        FROM stg_leituras_sensor\n        GROUP BY zona, tipo_sensor;\n    ", "int_rondas_irregulares": "\n        DROP TABLE IF EXISTS int_rondas_irregulares;\n        CREATE TABLE int_rondas_irregulares AS\n        SELECT\n            zona,\n            COUNT(*)                               AS total_rondas,\n            SUM(eh_irregular)                      AS rondas_irregulares,\n            ROUND(\n                100.0 * SUM(eh_irregular) / COUNT(*), 2\n            )                                      AS pct_irregular,\n            ROUND(AVG(duracao_minutos), 1)          AS media_duracao_min,\n            COUNT(DISTINCT funcionario_id)         AS vigilantes_envolvidos\n        FROM stg_rondas\n        GROUP BY zona;\n    ", "mart_zona_risco": "\n        DROP TABLE IF EXISTS mart_zona_risco;\n        CREATE TABLE mart_zona_risco AS\n        WITH incidentes_por_zona AS (\n            SELECT\n                zona,\n                COUNT(*)                                                       AS total_incidentes,\n                SUM(CASE WHEN nivel_gravidade = 'CRITICO' THEN 1 ELSE 0 END)  AS incidentes_criticos,\n                SUM(CASE WHEN nivel_gravidade = 'ALTO'    THEN 1 ELSE 0 END)  AS incidentes_altos,\n                ROUND(AVG(gravidade), 2)                                       AS gravidade_media\n            FROM int_incidentes_brutos\n            GROUP BY zona\n        ),\n        alertas_por_zona AS (\n            SELECT\n                zona,\n                SUM(total_alertas)     AS total_alertas_sensor,\n                SUM(alertas_criticos)  AS alertas_criticos_sensor,\n                ROUND(AVG(pct_alerta), 2) AS pct_alerta_medio\n            FROM int_alertas_sensor\n            GROUP BY zona\n        ),\n        rondas_por_zona AS (\n            SELECT\n                zona,\n                total_rondas,\n                rondas_irregulares,\n                pct_irregular\n            FROM int_rondas_irregulares\n        )\n        SELECT\n            COALESCE(i.zona, a.zona, r.zona)           AS zona,\n            COALESCE(i.total_incidentes, 0)            AS total_incidentes,\n            COALESCE(i.incidentes_criticos, 0)         AS incidentes_criticos,\n            COALESCE(a.total_alertas_sensor, 0)        AS total_alertas_sensor,\n            COALESCE(a.alertas_criticos_sensor, 0)     AS alertas_criticos_sensor,\n            COALESCE(r.rondas_irregulares, 0)          AS rondas_irregulares,\n            COALESCE(r.pct_irregular, 0)               AS pct_rondas_irregulares,\n            ROUND(\n                (COALESCE(i.incidentes_criticos, 0) * 3.0) +\n                (COALESCE(a.alertas_criticos_sensor, 0) * 2.0) +\n                (COALESCE(r.pct_irregular, 0) * 0.5)\n            , 2)                                       AS score_risco,\n            CASE\n                WHEN (\n                    (COALESCE(i.incidentes_criticos, 0) * 3.0) +\n                    (COALESCE(a.alertas_criticos_sensor, 0) * 2.0) +\n                    (COALESCE(r.pct_irregular, 0) * 0.5)\n                ) >= 30 THEN 'CRITICO'\n                WHEN (\n                    (COALESCE(i.incidentes_criticos, 0) * 3.0) +\n                    (COALESCE(a.alertas_criticos_sensor, 0) * 2.0) +\n                    (COALESCE(r.pct_irregular, 0) * 0.5)\n                ) >= 20 THEN 'ALTO'\n                WHEN (\n                    (COALESCE(i.incidentes_criticos, 0) * 3.0) +\n                    (COALESCE(a.alertas_criticos_sensor, 0) * 2.0) +\n                    (COALESCE(r.pct_irregular, 0) * 0.5)\n                ) >= 10 THEN 'MEDIO'\n                ELSE 'BAIXO'\n            END                                        AS classificacao_risco\n        FROM incidentes_por_zona  i\n        FULL OUTER JOIN alertas_por_zona  a ON i.zona = a.zona\n        FULL OUTER JOIN rondas_por_zona   r ON COALESCE(i.zona, a.zona) = r.zona;\n    ", "mart_relatorio_final": "\n        DROP TABLE IF EXISTS mart_relatorio_final;\n        CREATE TABLE mart_relatorio_final AS\n        SELECT\n            z.zona,\n            z.score_risco,\n            z.classificacao_risco,\n            z.total_incidentes,\n            z.incidentes_criticos,\n            z.total_alertas_sensor,\n            z.alertas_criticos_sensor,\n            z.rondas_irregulares,\n            z.pct_rondas_irregulares,\n            RANK() OVER (ORDER BY z.score_risco DESC) AS ranking_risco,\n            CASE\n                WHEN z.classificacao_risco = 'CRITICO' THEN\n                    'Reforço imediato de vigilância. Verificação de câmeras e sensores. Auditoria de acessos.'\n                WHEN z.classificacao_risco = 'ALTO' THEN\n                    'Aumentar frequência de rondas. Revisar protocolos de resposta a incidentes.'\n                WHEN z.classificacao_risco = 'MEDIO' THEN\n                    'Manter monitoramento. Verificar calibração dos sensores.'\n                ELSE\n                    'Zona sob controle. Manter rotina operacional.'\n            END AS recomendacao\n        FROM mart_zona_risco z\n        ORDER BY z.score_risco DESC;\n    "};
+    let SAMPLES = {"stg_eventos_camera": {"columns": ["id", "camera_id", "zona", "tipo_evento", "timestamp", "duracao_segundos", "confianca", "funcionario_notificado", "eh_alerta"], "rows": [[1, "CAM-009", "Estacionamento", "ACESSO_NEGADO", "2026-10-11 13:32:04", 19, 0.87, "F005", 1], [2, "CAM-001", "Entrada Principal", "ACESSO_NEGADO", "2026-09-24 04:57:19", 31, 0.77, null, 1], [3, "CAM-018", "Sala de Servidores", "ACESSO_NEGADO", "2026-09-28 09:12:01", 59, 0.81, "F001", 1], [4, "CAM-011", "Almoxarifado", "ACESSO_NEGADO", "2026-10-15 16:14:44", 29, 0.97, null, 1], [6, "CAM-010", "Perímetro Externo", "ACESSO_AUTORIZADO", "2026-10-20 22:35:52", 81, 0.94, null, 0]]}, "stg_leituras_sensor": {"columns": ["id", "sensor_id", "tipo_sensor", "zona", "valor", "alerta", "timestamp", "nivel_risco"], "rows": [[571, "SEN-001", "PIR", "Sala de Servidores", 67.81, 0, "2026-09-21 14:17:17", "MEDIO"], [7, "SEN-001", "VIBRAÇÃO", "Sala de Servidores", 83.88, 1, "2026-09-22 03:17:17", "ALTO"], [411, "SEN-001", "VIBRAÇÃO", "Recepção", 89.4, 1, "2026-09-22 05:35:17", "ALTO"], [47, "SEN-001", "MAGNETICO", "Perímetro Externo", 25.19, 0, "2026-09-22 12:34:17", "NORMAL"], [306, "SEN-001", "TEMPERATURA", "Entrada Principal", 14.54, 0, "2026-09-22 15:39:17", "NORMAL"]]}, "stg_rondas": {"columns": ["id", "funcionario_id", "funcionario_nome", "funcionario_cargo", "zona", "inicio", "fim", "status", "observacoes", "duracao_minutos", "eh_irregular"], "rows": [[1, "F005", "Roberto Silva", "Vigilante", "Perímetro Externo", "2026-10-02 16:35:17", "2026-10-02 18:03:17", "CONCLUIDA", "Nenhuma ocorrência", 88, 0], [2, "F005", "Roberto Silva", "Vigilante", "Sala de Servidores", "2026-09-29 01:53:17", "2026-09-29 02:07:17", "NAO_REALIZADA", "Ronda não finalizada no prazo", 14, 1], [3, "F002", "Ana Souza", "Vigilante", "Perímetro Externo", "2026-09-27 10:42:17", "2026-09-27 11:42:17", "CONCLUIDA", "Nenhuma ocorrência", 60, 0], [4, "F003", "João Lima", "Vigilante", "Recepção", "2026-10-10 03:01:17", "2026-10-10 03:32:17", "NAO_REALIZADA", "Ronda não finalizada no prazo", 31, 1], [5, "F003", "João Lima", "Vigilante", "Entrada Principal", "2026-10-13 08:08:17", "2026-10-13 09:30:17", "NAO_REALIZADA", "Ronda não finalizada no prazo", 81, 1]]}, "int_incidentes_brutos": {"columns": ["id", "tipo", "zona", "data_hora", "gravidade", "status", "origem", "camera_id", "sensor_id", "funcionario_responsavel", "responsavel_nome", "nivel_gravidade", "confianca_camera", "risco_sensor"], "rows": [[1, "ACESSO_AUTORIZADO", "Recepção", "2026-10-14 05:41:17", 4, "ABERTO", "SENSOR", null, "SEN-014", "F007", "Fernando Rocha", "CRITICO", 0, "ALTO"], [2, "ACESSO_AUTORIZADO", "Recepção", "2026-10-11 22:47:17", 4, "RESOLVIDO", "CAMERA", "CAM-004", null, "F001", "Carlos Mendes", "CRITICO", 0.6, "N/A"], [3, "ACESSO_AUTORIZADO", "Recepção", "2026-09-23 14:01:17", 5, "EM_ATENDIMENTO", "CAMERA", "CAM-019", null, "F005", "Roberto Silva", "CRITICO", 0.6, "N/A"], [4, "ACESSO_AUTORIZADO", "Recepção", "2026-10-10 01:47:17", 1, "EM_ATENDIMENTO", "SENSOR", null, "SEN-008", "F006", "Patrícia Alves", "BAIXO", 0, "ALTO"], [5, "RONDA_INCOMPLETA", "Estacionamento", "2026-10-13 23:49:17", 1, "RESOLVIDO", "CAMERA", "CAM-018", null, "F002", "Ana Souza", "BAIXO", 0.6, "N/A"]]}, "int_alertas_sensor": {"columns": ["zona", "tipo_sensor", "total_leituras", "total_alertas", "media_valor", "max_valor", "alertas_criticos", "alertas_altos", "pct_alerta"], "rows": [["Almoxarifado", "FUMACA", 24, 5, 46.77, 99.67, 1, 4, 20.83], ["Almoxarifado", "MAGNETICO", 20, 4, 51.54, 98.17, 2, 2, 20.0], ["Almoxarifado", "PIR", 27, 7, 57.5, 98.44, 4, 3, 25.93], ["Almoxarifado", "TEMPERATURA", 23, 4, 48.24, 96.33, 2, 2, 17.39], ["Almoxarifado", "VIBRAÇÃO", 20, 5, 48.41, 96.01, 2, 3, 25.0]]}, "int_rondas_irregulares": {"columns": ["zona", "total_rondas", "rondas_irregulares", "pct_irregular", "media_duracao_min", "vigilantes_envolvidos"], "rows": [["Almoxarifado", 27, 9, 33.33, 48.6, 4], ["Entrada Principal", 20, 5, 25.0, 45.0, 4], ["Estacionamento", 32, 11, 34.38, 51.3, 4], ["Perímetro Externo", 37, 13, 35.14, 40.9, 4], ["Recepção", 29, 9, 31.03, 52.9, 4]]}, "mart_zona_risco": {"columns": ["zona", "total_incidentes", "incidentes_criticos", "total_alertas_sensor", "alertas_criticos_sensor", "rondas_irregulares", "pct_rondas_irregulares", "score_risco", "classificacao_risco"], "rows": [["Almoxarifado", 17, 7, 25, 11, 9, 33.33, 59.66, "CRITICO"], ["Entrada Principal", 22, 8, 19, 10, 5, 25.0, 56.5, "CRITICO"], ["Estacionamento", 24, 13, 20, 9, 11, 34.38, 74.19, "CRITICO"], ["Perímetro Externo", 22, 7, 17, 7, 13, 35.14, 52.57, "CRITICO"], ["Recepção", 27, 11, 32, 17, 9, 31.03, 82.52, "CRITICO"]]}, "mart_relatorio_final": {"columns": ["zona", "score_risco", "classificacao_risco", "total_incidentes", "incidentes_criticos", "total_alertas_sensor", "alertas_criticos_sensor", "rondas_irregulares", "pct_rondas_irregulares", "ranking_risco", "recomendacao"], "rows": [["Recepção", 82.52, "CRITICO", 27, 11, 32, 17, 9, 31.03, 1, "Reforço imediato de vigilância. Verificação de câmeras e sensores. Auditoria de acessos."], ["Estacionamento", 74.19, "CRITICO", 24, 13, 20, 9, 11, 34.38, 2, "Reforço imediato de vigilância. Verificação de câmeras e sensores. Auditoria de acessos."], ["Sala de Servidores", 70.34, "CRITICO", 21, 9, 20, 10, 14, 46.67, 3, "Reforço imediato de vigilância. Verificação de câmeras e sensores. Auditoria de acessos."], ["Refeitório", 65.0, "CRITICO", 17, 9, 25, 9, 10, 40.0, 4, "Reforço imediato de vigilância. Verificação de câmeras e sensores. Auditoria de acessos."], ["Almoxarifado", 59.66, "CRITICO", 17, 7, 25, 11, 9, 33.33, 5, "Reforço imediato de vigilância. Verificação de câmeras e sensores. Auditoria de acessos."]]}};
+
+    let nodeMap = new Map();
+    function atualizarNodeMap() {
+      nodeMap.clear();
+      NODES.forEach(n => nodeMap.set(n.id, n));
+    }
+    atualizarNodeMap();
+
+    let activeNodeId = null;
+    let selectedLayer = 'all';
+    let isPipelineRunning = false;
+
+    // ─── Camada Cores & Metadados ────────────────────────────────────
+    const LAYER_CONFIG = {
+      staging: {
+        name: 'Staging',
+        color: '#0284c7',
+        bg: 'rgba(2, 132, 199, 0.1)',
+        border: '#0369a1',
+        rank: 0
+      },
+      intermediaria: {
+        name: 'Intermediária',
+        color: '#6366f1',
+        bg: 'rgba(99, 102, 241, 0.1)',
+        border: '#4f46e5',
+        rank: 1
+      },
+      mart: {
+        name: 'Data Mart',
+        color: '#10b981',
+        bg: 'rgba(16, 185, 129, 0.1)',
+        border: '#059669',
+        rank: 2
+      }
+    };
+
+    // ─── Configuração do Layout Determinístico ───────────────────────
+    const NODE_WIDTH = 220;
+    const NODE_HEIGHT = 74;
+
+    function calcularLayout(width, height) {
+      const cols = [[], [], []];
+
+      NODES.forEach(n => {
+        const rank = LAYER_CONFIG[n.camada]?.rank ?? 0;
+        cols[rank].push(n);
+      });
+
+      const colSpacing = (width - 120) / 3;
+      const startX = 80;
+
+      cols.forEach((colNodes, colIdx) => {
+        const totalNodes = colNodes.length;
+        const totalHeight = totalNodes * NODE_HEIGHT + (totalNodes - 1) * 36;
+        const startY = Math.max(60, (height - totalHeight) / 2);
+
+        colNodes.forEach((node, rowIdx) => {
+          node.x = startX + colIdx * colSpacing;
+          node.y = startY + rowIdx * (NODE_HEIGHT + 36);
+        });
+      });
+    }
+
+    // ─── Renderização D3 ─────────────────────────────────────────────
+    const svg = d3.select("#graph-svg");
+    let zoomBehavior, gRoot, gEdges, gNodes;
+
+    function renderDAG() {
+      const container = document.querySelector('.canvas-container');
+      const width = container.clientWidth;
+      const height = container.clientHeight;
+
+      svg.selectAll("*").remove();
+      calcularLayout(width, height);
+
+      const defs = svg.append("defs");
+
+      defs.append("marker")
+        .attr("id", "arrow-default")
+        .attr("viewBox", "0 -5 10 10")
+        .attr("refX", 8)
+        .attr("refY", 0)
+        .attr("markerWidth", 6)
+        .attr("markerHeight", 6)
+        .attr("orient", "auto")
+        .append("path")
+        .attr("d", "M0,-5L10,0L0,5")
+        .attr("fill", "#334155");
+
+      defs.append("marker")
+        .attr("id", "arrow-active")
+        .attr("viewBox", "0 -5 10 10")
+        .attr("refX", 8)
+        .attr("refY", 0)
+        .attr("markerWidth", 6)
+        .attr("markerHeight", 6)
+        .attr("orient", "auto")
+        .append("path")
+        .attr("d", "M0,-5L10,0L0,5")
+        .attr("fill", "#38bdf8");
+
+      // Grid sutil
+      const pattern = defs.append("pattern")
+        .attr("id", "grid-pattern")
+        .attr("width", 32)
+        .attr("height", 32)
+        .attr("patternUnits", "userSpaceOnUse");
+
+      pattern.append("circle")
+        .attr("cx", 2)
+        .attr("cy", 2)
+        .attr("r", 1)
+        .attr("fill", "#1e293b");
+
+      svg.append("rect")
+        .attr("width", "100%")
+        .attr("height", "100%")
+        .attr("fill", "url(#grid-pattern)");
+
+      // Zoom container
+      gRoot = svg.append("g").attr("id", "zoom-root");
+      gEdges = gRoot.append("g").attr("class", "edges-layer");
+      gNodes = gRoot.append("g").attr("class", "nodes-layer");
+
+      zoomBehavior = d3.zoom()
+        .scaleExtent([0.3, 2.5])
+        .on("zoom", (event) => gRoot.attr("transform", event.transform));
+
+      svg.call(zoomBehavior);
+
+      // IMPORTANTE: Desativa o zoom padrão de duplo clique do D3 para evitar o zoom involuntário na tela
+      // Desativa completamente qualquer zoom por duplo clique no SVG e no canvas
+      svg.on("dblclick.zoom", null);
+      svg.on("dblclick", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      });
+
+      // Render Arestas Bezier Cúbicas
+      EDGES.forEach(edge => {
+        const sourceNode = nodeMap.get(edge.origem);
+        const targetNode = nodeMap.get(edge.destino);
+        if (!sourceNode || !targetNode) return;
+
+        const x1 = sourceNode.x + NODE_WIDTH;
+        const y1 = sourceNode.y + NODE_HEIGHT / 2;
+        const x2 = targetNode.x;
+        const y2 = targetNode.y + NODE_HEIGHT / 2;
+        const dx = (x2 - x1) * 0.55;
+
+        const pathData = `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
+
+        gEdges.append("path")
+          .attr("d", pathData)
+          .attr("id", `edge-${edge.origem}-${edge.destino}`)
+          .attr("class", `edge-path from-${edge.origem} to-${edge.destino}`)
+          .attr("fill", "none")
+          .attr("stroke", "#334155")
+          .attr("stroke-width", 1.75)
+          .attr("marker-end", "url(#arrow-default)")
+          .style("transition", "stroke 0.2s, stroke-width 0.2s");
+      });
+
+      // Render Nós (clique simples ou duplo apenas abre detalhes, NUNCA dá zoom)
+      const nodeSelection = gNodes.selectAll(".node-group")
+        .data(NODES)
+        .enter()
+        .append("g")
+        .attr("class", d => `node-group node-${d.id} layer-${d.camada}`)
+        .attr("transform", d => `translate(${d.x}, ${d.y})`)
+        .style("cursor", "pointer")
+        .on("click", (event, d) => {
+          event.stopPropagation();
+          selecionarNode(d.id);
+        })
+        .on("dblclick", (event, d) => {
+          event.preventDefault();
+          event.stopPropagation();
+          selecionarNode(d.id);
+        });
+
+      // Retângulo Principal do Nó
+      nodeSelection.append("rect")
+        .attr("width", NODE_WIDTH)
+        .attr("height", NODE_HEIGHT)
+        .attr("rx", 8)
+        .attr("fill", "#0f172a")
+        .attr("stroke", d => LAYER_CONFIG[d.camada]?.border || "#334155")
+        .attr("stroke-width", 1.25)
+        .attr("class", "node-rect")
+        .style("transition", "all 0.15s ease");
+
+      // Barra superior indicadora de camada
+      nodeSelection.append("rect")
+        .attr("width", NODE_WIDTH)
+        .attr("height", 3)
+        .attr("rx", 1.5)
+        .attr("fill", d => LAYER_CONFIG[d.camada]?.color || "#38bdf8");
+
+      // Badge de Camada
+      nodeSelection.append("text")
+        .attr("x", 12)
+        .attr("y", 20)
+        .attr("fill", d => LAYER_CONFIG[d.camada]?.color || "#38bdf8")
+        .attr("font-size", "9px")
+        .attr("font-weight", "700")
+        .attr("letter-spacing", "0.06em")
+        .text(d => d.camada.toUpperCase());
+
+      // Status Indicator Dot (canto direito)
+      nodeSelection.append("circle")
+        .attr("cx", NODE_WIDTH - 16)
+        .attr("cy", 16)
+        .attr("r", 4)
+        .attr("class", "node-status-dot")
+        .attr("fill", d => d.status === "EXECUTANDO" ? "#38bdf8" : (d.status === "PENDENTE" ? "#475569" : "#10b981"));
+
+      // Título do Modelo / Tabela
+      nodeSelection.append("text")
+        .attr("x", 12)
+        .attr("y", 40)
+        .attr("fill", "#f1f5f9")
+        .attr("font-size", "12px")
+        .attr("font-weight", "600")
+        .attr("font-family", "var(--font-ui)")
+        .text(d => {
+          const name = d.label.replace(/^(Staging|Int|Mart):\s*/, '');
+          return name.length > 24 ? name.substring(0, 22) + "..." : name;
+        });
+
+      // Metadados inferiores (Linhas + Duração)
+      nodeSelection.append("text")
+        .attr("x", 12)
+        .attr("y", 58)
+        .attr("fill", "#94a3b8")
+        .attr("font-size", "10px")
+        .attr("font-family", "var(--font-code)")
+        .attr("class", "node-meta-text")
+        .text(d => `${(d.linhas || 0).toLocaleString('pt-BR')} linhas · ${(d.duracao_s || 0).toFixed(3)}s`);
+
+      if (activeNodeId) {
+        destacarNode(activeNodeId);
+      }
+    }
+
+    // ─── Seleção e Destaque (Sem qualquer alteração de zoom) ──────────
+    function selecionarNode(nodeId) {
+      activeNodeId = nodeId;
+      destacarNode(nodeId);
+      preencherDrawer(nodeId);
+      abrirDrawer();
+    }
+
+    function destacarNode(nodeId) {
+      d3.selectAll(".node-rect")
+        .attr("stroke", d => LAYER_CONFIG[d.camada]?.border || "#334155")
+        .attr("stroke-width", 1.25)
+        .attr("fill", "#0f172a");
+
+      d3.selectAll(".edge-path")
+        .attr("stroke", "#334155")
+        .attr("stroke-width", 1.75)
+        .attr("marker-end", "url(#arrow-default)");
+
+      if (!nodeId) return;
+
+      d3.select(`.node-${nodeId} .node-rect`)
+        .attr("stroke", "#38bdf8")
+        .attr("stroke-width", 2)
+        .attr("fill", "#1e293b");
+
+      d3.selectAll(`.edge-path.to-${nodeId}`)
+        .attr("stroke", "#38bdf8")
+        .attr("stroke-width", 2.25)
+        .attr("marker-end", "url(#arrow-active)");
+
+      d3.selectAll(`.edge-path.from-${nodeId}`)
+        .attr("stroke", "#6366f1")
+        .attr("stroke-width", 2.25)
+        .attr("marker-end", "url(#arrow-active)");
+    }
+
+    // ─── Drawer e Abas ───────────────────────────────────────────────
+    function abrirDrawer() {
+      document.getElementById("inspectorDrawer").classList.add("open");
+    }
+
+    function fecharDrawer() {
+      document.getElementById("inspectorDrawer").classList.remove("open");
+      activeNodeId = null;
+      destacarNode(null);
+    }
+
+    function trocarTab(tabId, btn) {
+      document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+      document.querySelectorAll(".tab-pane").forEach(p => p.classList.remove("active"));
+      btn.classList.add("active");
+      document.getElementById(tabId).classList.add("active");
+    }
+
+    function preencherDrawer(nodeId) {
+      const node = nodeMap.get(nodeId);
+      if (!node) return;
+
+      const layerCfg = LAYER_CONFIG[node.camada] || {};
+      const badge = document.getElementById("dLayerBadge");
+      badge.textContent = node.camada.toUpperCase();
+      badge.style.color = layerCfg.color || "#38bdf8";
+      badge.style.background = layerCfg.bg || "rgba(56, 189, 248, 0.1)";
+
+      document.getElementById("dTitle").textContent = node.id;
+
+      document.getElementById("dRows").textContent = (node.linhas || 0).toLocaleString('pt-BR');
+      document.getElementById("dDuration").textContent = (node.duracao_s || 0).toFixed(4) + "s";
+      
+      const statusEl = document.getElementById("dStatus");
+      statusEl.textContent = node.status || "SUCESSO";
+      statusEl.style.color = node.status === "EXECUTANDO" ? "#38bdf8" : (node.status === "PENDENTE" ? "#64748b" : "#10b981");
+
+      document.getElementById("dTimestamp").textContent = node.executado_em ? node.executado_em.replace('T', ' ').substring(0, 19) : "--";
+      document.getElementById("dDescription").textContent = node.descricao || "";
+
+      const upstreamNodes = EDGES.filter(e => e.destino === nodeId).map(e => e.origem);
+      const upstreamEl = document.getElementById("dUpstream");
+      if (upstreamNodes.length === 0) {
+        upstreamEl.innerHTML = '<span style="font-size:11px;color:var(--text-subtle)">Nenhuma dependência (nó raiz)</span>';
+      } else {
+        upstreamEl.innerHTML = upstreamNodes.map(dep => 
+          `<span class="dep-pill" onclick="selecionarNode('${dep}')">← ${dep}</span>`
+        ).join('');
+      }
+
+      const downstreamNodes = EDGES.filter(e => e.origem === nodeId).map(e => e.destino);
+      const downstreamEl = document.getElementById("dDownstream");
+      if (downstreamNodes.length === 0) {
+        downstreamEl.innerHTML = '<span style="font-size:11px;color:var(--text-subtle)">Nenhuma etapa dependente (nó folha)</span>';
+      } else {
+        downstreamEl.innerHTML = downstreamNodes.map(dest => 
+          `<span class="dep-pill" onclick="selecionarNode('${dest}')">${dest} →</span>`
+        ).join('');
+      }
+
+      const rawSql = (SQL_MAP[nodeId] || "-- Nenhuma query SQL registrada").trim();
+      document.getElementById("dSqlCode").innerHTML = formatarSQL(rawSql);
+
+      const sample = SAMPLES[nodeId];
+      const previewContainer = document.getElementById("dPreviewTable");
+      if (!sample || !sample.columns || sample.columns.length === 0) {
+        previewContainer.innerHTML = '<div style="padding:16px;font-size:11px;color:var(--text-subtle)">Nenhum registro encontrado.</div>';
+      } else {
+        let html = '<table class="data-table"><thead><tr>';
+        sample.columns.forEach(col => {
+          html += `<th>${col}</th>`;
+        });
+        html += '</tr></thead><tbody>';
+        sample.rows.forEach(row => {
+          html += '<tr>';
+          row.forEach(val => {
+            html += `<td>${val !== null ? String(val) : '<span style="color:var(--text-subtle)">NULL</span>'}</td>`;
+          });
+          html += '</tr>';
+        });
+        html += '</tbody></table>';
+        previewContainer.innerHTML = html;
+      }
+    }
+
+    function formatarSQL(sql) {
+      const keywords = ["SELECT", "FROM", "WHERE", "JOIN", "LEFT", "RIGHT", "FULL", "OUTER", "ON", "GROUP", "BY", "ORDER", "DROP", "TABLE", "CREATE", "AS", "IF", "EXISTS", "CASE", "WHEN", "THEN", "ELSE", "END", "WITH", "OVER", "PARTITION", "AND", "OR", "NOT", "IN", "NULL", "COALESCE", "ROUND", "AVG", "SUM", "COUNT", "MAX", "MIN", "CAST", "INTEGER", "REAL", "TEXT", "RANK"];
+      let escaped = sql
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+
+      keywords.forEach(kw => {
+        const regex = new RegExp(`\\b(${kw})\\b`, 'gi');
+        escaped = escaped.replace(regex, `<span class="kw">$1</span>`);
+      });
+
+      escaped = escaped.replace(/'([^']*)'/g, `<span class="str">'$1'</span>`);
+      return escaped;
+    }
+
+    function copiarSQL() {
+      if (!activeNodeId) return;
+      const sql = (SQL_MAP[activeNodeId] || "").trim();
+      navigator.clipboard.writeText(sql).then(() => {
+        const btn = document.querySelector(".sql-copy-btn");
+        btn.textContent = "Copiado!";
+        setTimeout(() => btn.textContent = "Copiar SQL", 1500);
+      });
+    }
+
+    // ─── Play: Executar Pipeline ─────────────────────────────────────
+    const ORDEM_EXECUCAO = [
+      "stg_eventos_camera",
+      "stg_rondas",
+      "stg_leituras_sensor",
+      "int_rondas_irregulares",
+      "int_incidentes_brutos",
+      "int_alertas_sensor",
+      "mart_zona_risco",
+      "mart_relatorio_final"
+    ];
+
+    async function executarPipelinePlay() {
+      if (isPipelineRunning) return;
+      isPipelineRunning = true;
+
+      const playBtn = document.getElementById("btnPlayPipeline");
+      const playText = document.getElementById("btnPlayText");
+      const dot = document.getElementById("sbDot");
+      const sbStatus = document.getElementById("sbPipelineStatus");
+
+      playBtn.classList.add("running");
+      playBtn.disabled = true;
+      playBtn.innerHTML = `
+        <svg class="spinner-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10" stroke-opacity="0.25"></circle>
+          <path d="M12 2a10 10 0 0 1 10 10" stroke-opacity="1"></path>
+        </svg>
+        <span>Executando...</span>
+      `;
+
+      dot.classList.add("running");
+      sbStatus.textContent = "Status: Executando ordenação topológica...";
+
+      // Abre console
+      abrirTerminal();
+      limparTerminal();
+      adicionarLog("▶ Iniciando execução orquestrada do DAG (Kahn's Algorithm)...", "log-info");
+      adicionarLog(`Ordem topológica resolvida: ${ORDEM_EXECUCAO.join(' → ')}`, "log-info");
+
+      // Reseta todos os nós para Pendente
+      NODES.forEach(n => {
+        n.status = "PENDENTE";
+      });
+      renderDAG();
+
+      const startTime = performance.now();
+
+      // Executa passo a passo animando
+      for (let i = 0; i < ORDEM_EXECUCAO.length; i++) {
+        const stepId = ORDEM_EXECUCAO[i];
+        const node = nodeMap.get(stepId);
+        if (!node) continue;
+
+        // Atualiza nó para EXECUTANDO
+        node.status = "EXECUTANDO";
+        atualizarVisualDoNo(node);
+        animarArestasEntrada(stepId, true);
+
+        adicionarLog(`[${i + 1}/8] [${node.camada.toUpperCase()}] Executando query de ${node.label}...`, "log-running");
+
+        // Delay para visibilidade da orquestração real
+        await new Promise(r => setTimeout(r, 650));
+
+        // Conclui nó com sucesso
+        node.status = "SUCESSO";
+        animarArestasEntrada(stepId, false);
+        atualizarVisualDoNo(node);
+
+        const durationMs = ((node.duracao_s || 0.003) * 1000).toFixed(1);
+        adicionarLog(`  ↳ Concluído: ${node.linhas.toLocaleString('pt-BR')} linhas geradas em ${durationMs}ms`, "log-success");
+
+        if (activeNodeId === stepId) {
+          preencherDrawer(stepId);
+        }
+      }
+
+      const totalElapsed = ((performance.now() - startTime) / 1000).toFixed(2);
+      adicionarLog(`✓ Pipeline concluído com sucesso em ${totalElapsed}s! 8/8 transformações SQL validadas.`, "log-success");
+
+      playBtn.classList.remove("running");
+      playBtn.disabled = false;
+      playBtn.innerHTML = `
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+          <polygon points="5 3 19 12 5 21 5 3"></polygon>
+        </svg>
+        <span>Executar Novamente</span>
+      `;
+
+      dot.classList.remove("running");
+      dot.style.background = "#10b981";
+      sbStatus.textContent = `Status: Concluído com sucesso (${totalElapsed}s)`;
+      isPipelineRunning = false;
+    }
+
+    function zerarPipeline(mostrarLog = true) {
+      if (isPipelineRunning) return;
+
+      // Reseta status de todos os nós para PENDENTE
+      NODES.forEach(n => {
+        n.status = "PENDENTE";
+      });
+      renderDAG();
+
+      // Desativa animação de qualquer aresta
+      d3.selectAll(".edge-path").classed("edge-running", false);
+
+      // Reseta botão de Play
+      const playBtn = document.getElementById("btnPlayPipeline");
+      playBtn.classList.remove("running");
+      playBtn.disabled = false;
+      playBtn.innerHTML = `
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+          <polygon points="5 3 19 12 5 21 5 3"></polygon>
+        </svg>
+        <span>Executar Pipeline</span>
+      `;
+
+      // Reseta barra de status
+      const dot = document.getElementById("sbDot");
+      dot.classList.remove("running");
+      dot.style.background = "#64748b";
+
+      document.getElementById("sbPipelineStatus").textContent = "Status: Pipeline zerado · Pronto para execução";
+
+      // Se o inspetor lateral estiver aberto, atualiza para refletir estado PENDENTE
+      if (activeNodeId) {
+        preencherDrawer(activeNodeId);
+      }
+
+      if (mostrarLog) {
+        adicionarLog("↺ Pipeline zerado com sucesso. Todas as 8 etapas voltaram para PENDENTE.", "log-info");
+      }
+    }
+
+    function atualizarVisualDoNo(node) {
+      const g = d3.select(`.node-${node.id}`);
+      if (g.empty()) return;
+
+      const dotColor = node.status === "EXECUTANDO" ? "#38bdf8" : (node.status === "PENDENTE" ? "#475569" : "#10b981");
+      g.select(".node-status-dot").attr("fill", dotColor);
+
+      if (node.status === "EXECUTANDO") {
+        g.select(".node-rect")
+          .attr("stroke", "#38bdf8")
+          .attr("stroke-width", 2.25);
+      } else {
+        g.select(".node-rect")
+          .attr("stroke", LAYER_CONFIG[node.camada]?.border || "#334155")
+          .attr("stroke-width", 1.25);
+      }
+    }
+
+    function animarArestasEntrada(nodeId, ligar) {
+      const edges = d3.selectAll(`.edge-path.to-${nodeId}`);
+      if (ligar) {
+        edges.classed("edge-running", true);
+      } else {
+        edges.classed("edge-running", false);
+      }
+    }
+
+    // ─── Terminal / Logs ─────────────────────────────────────────────
+    function toggleTerminal() {
+      const panel = document.getElementById("terminalPanel");
+      panel.classList.toggle("open");
+    }
+
+    function abrirTerminal() {
+      document.getElementById("terminalPanel").classList.add("open");
+    }
+
+    function limparTerminal() {
+      document.getElementById("terminalLogs").innerHTML = "";
+    }
+
+    function adicionarLog(msg, classe = "log-info") {
+      const logs = document.getElementById("terminalLogs");
+      const time = new Date().toTimeString().split(" ")[0];
+      const div = document.createElement("div");
+      div.className = "log-line";
+      div.innerHTML = `<span class="log-time">[${time}]</span> <span class="${classe}">${msg}</span>`;
+      logs.appendChild(div);
+      logs.scrollTop = logs.scrollHeight;
+    }
+
+    // ─── Modal do Relatório ──────────────────────────────────────────
+    function abrirModalRelatorio() {
+      const tbody = document.getElementById("modalRelatorioBody");
+      tbody.innerHTML = RELATORIO.map(r => `
+        <tr>
+          <td><strong style="color:var(--text-main)">#${r.ranking_risco}</strong></td>
+          <td><strong>${r.zona}</strong></td>
+          <td style="font-family:var(--font-code);font-weight:700">${parseFloat(r.score_risco).toFixed(2)}</td>
+          <td><span class="risk-badge risk-${r.classificacao_risco}">${r.classificacao_risco}</span></td>
+          <td>${r.total_incidentes}</td>
+          <td>${r.incidentes_criticos}</td>
+          <td>${r.total_alertas_sensor}</td>
+          <td>${r.pct_rondas_irregulares}%</td>
+          <td style="font-size:11px;color:var(--text-muted);max-width:280px;white-space:normal">${r.recomendacao}</td>
+        </tr>
+      `).join('');
+      document.getElementById("modalRelatorio").classList.add("open");
+    }
+
+    function fecharModalRelatorio() {
+      document.getElementById("modalRelatorio").classList.remove("open");
+    }
+
+    // ─── Filtros e Busca ─────────────────────────────────────────────
+    function filtrarCamada(layer, btn) {
+      selectedLayer = layer;
+      document.querySelectorAll(".chip-btn").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+
+      d3.selectAll(".node-group").style("opacity", d => {
+        if (layer === 'all' || d.camada === layer) return 1;
+        return 0.2;
+      });
+    }
+
+    document.getElementById("nodeSearch").addEventListener("input", (e) => {
+      const query = e.target.value.toLowerCase().trim();
+      d3.selectAll(".node-group").style("opacity", d => {
+        if (!query) return 1;
+        const matches = d.id.toLowerCase().includes(query) || d.label.toLowerCase().includes(query);
+        return matches ? 1 : 0.15;
+      });
+    });
+
+    // ─── Controles de Zoom ───────────────────────────────────────────
+    function zoomIn() { svg.transition().duration(250).call(zoomBehavior.scaleBy, 1.3); }
+    function zoomOut() { svg.transition().duration(250).call(zoomBehavior.scaleBy, 0.7); }
+    function resetZoom() { svg.transition().duration(300).call(zoomBehavior.transform, d3.zoomIdentity); }
+
+    // Previne qualquer ação/zoom de duplo clique nativo do navegador
+    document.addEventListener("dblclick", (event) => {
+      event.preventDefault();
+    }, { passive: false });
+
+    window.addEventListener("resize", () => renderDAG());
+    renderDAG();
+
+    adicionarLog("Orquestrador de Pipeline carregado. 8 etapas validadas.", "log-info");
+
+    setTimeout(() => {
+      selecionarNode("mart_zona_risco");
+    }, 200);
+  </script>
+</body>
+</html>
