@@ -759,7 +759,35 @@ def servir(porta=8000):
             else:
                 self._enviar(404, b"Not found", "text/plain")
 
+        def _zerar(self):
+            import subprocess
+            with lock:
+                try:
+                    for ext in ("", "-wal", "-shm"):
+                        try:
+                            os.remove(DB_PATH + ext)
+                        except FileNotFoundError:
+                            pass
+                    proc = subprocess.run(
+                        [sys.executable, os.path.join(base, "dados", "gerar_dados.py")],
+                        capture_output=True, text=True, encoding="utf-8",
+                        errors="replace", cwd=base,
+                        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+                    )
+                    ok = proc.returncode == 0
+                    resp = {"ok": ok, "log": (proc.stdout or "") + (proc.stderr or "")}
+                    if not ok:
+                        resp["erro"] = "falha ao recriar o banco"
+                except Exception as e:
+                    ok = False
+                    resp = {"ok": False, "erro": str(e), "log": ""}
+            self._enviar(200 if ok else 500,
+                         json.dumps(resp, ensure_ascii=False).encode("utf-8"),
+                         "application/json; charset=utf-8")
+
         def do_POST(self):
+            if self.path == "/api/zerar":
+                return self._zerar()
             if self.path != "/api/executar":
                 return self._enviar(404, b"Not found", "text/plain")
             buf = io.StringIO()
