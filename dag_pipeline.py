@@ -21,10 +21,15 @@ import sqlite3
 import time
 import json
 import os
+import re
 import sys
 from datetime import datetime
 from collections import defaultdict, deque
-from neo4j import GraphDatabase
+
+try:
+    from neo4j import GraphDatabase
+except ImportError:  # Neo4j é opcional: sem o driver usamos o fallback local
+    GraphDatabase = None
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -32,28 +37,33 @@ if hasattr(sys.stdout, "reconfigure"):
 # ─── Configurações ───────────────────────────────────────────────────────────
 DB_PATH = os.path.join(os.path.dirname(__file__), "dados", "vigilancia.db")
 
-# Carrega credenciais do arquivo se existir
+# Credenciais do Neo4j: variáveis de ambiente têm prioridade; depois o arquivo
+# local (ignorado pelo git). Nenhum segredo fica no código-fonte.
 CREDS_FILE = os.path.join(os.path.dirname(__file__), "Blank Sandbox Sandbox Credentials.txt")
-NEO4J_URI  = "bolt://98.94.31.102:7687"
-NEO4J_USER = "neo4j"
-NEO4J_PASS = "sediment-analog-quantity"
+NEO4J_URI  = os.environ.get("NEO4J_URI", "")
+NEO4J_USER = os.environ.get("NEO4J_USERNAME", "neo4j")
+NEO4J_PASS = os.environ.get("NEO4J_PASSWORD", "")
 
-if os.path.exists(CREDS_FILE):
+if not (NEO4J_URI and NEO4J_PASS) and os.path.exists(CREDS_FILE):
     try:
         with open(CREDS_FILE, "r", encoding="utf-8") as f:
             for line in f:
-                if "=" in line:
-                    k, v = line.strip().split("=", 1)
-                    if k == "NEO4J_URI":
-                        NEO4J_URI = v.strip()
-                        if not any(NEO4J_URI.endswith(f":{p}") for p in range(1, 65536)):
-                            NEO4J_URI += ":7687"
-                    elif k == "NEO4J_USERNAME":
-                        NEO4J_USER = v.strip()
-                    elif k == "NEO4J_PASSWORD":
-                        NEO4J_PASS = v.strip()
-    except Exception:
-        pass
+                if "=" not in line:
+                    continue
+                k, v = line.strip().split("=", 1)
+                k, v = k.strip(), v.strip()
+                if k == "NEO4J_URI" and not NEO4J_URI:
+                    NEO4J_URI = v
+                elif k == "NEO4J_USERNAME":
+                    NEO4J_USER = v
+                elif k == "NEO4J_PASSWORD" and not NEO4J_PASS:
+                    NEO4J_PASS = v
+    except OSError as e:
+        print(f"  ⚠️  Não foi possível ler o arquivo de credenciais: {e}")
+
+# Acrescenta a porta padrão do Bolt quando a URI não a informa
+if NEO4J_URI and not re.search(r":\d{1,5}$", NEO4J_URI):
+    NEO4J_URI += ":7687"
 
 # ─── Definição do DAG ────────────────────────────────────────────────────────
 DAG_NODES = [
@@ -216,13 +226,20 @@ TRANSFORMACOES_SQL = {
                 WHEN i.gravidade = 2  THEN 'MEDIO'
                 ELSE 'BAIXO'
             END AS nivel_gravidade,
-            COALESCE(ec.confianca, 0)           AS confianca_camera,
-            COALESCE(ls.nivel_risco, 'N/A')     AS risco_sensor
+            COALESCE((
+                SELECT MAX(ec.confianca)
+                FROM stg_eventos_camera ec
+                WHERE ec.camera_id = i.camera_id
+            ), 0)                               AS confianca_camera,
+            COALESCE((
+                SELECT ls.nivel_risco
+                FROM stg_leituras_sensor ls
+                WHERE ls.sensor_id = i.sensor_id
+                ORDER BY ls.valor DESC, ls.id
+                LIMIT 1
+            ), 'N/A')                           AS risco_sensor
         FROM incidentes i
-        LEFT JOIN funcionarios         f  ON i.funcionario_responsavel = f.id
-        LEFT JOIN stg_eventos_camera   ec ON i.camera_id = ec.camera_id
-        LEFT JOIN stg_leituras_sensor  ls ON i.sensor_id = ls.sensor_id
-        GROUP BY i.id;
+        LEFT JOIN funcionarios f ON i.funcionario_responsavel = f.id;
     """,
 
     "int_alertas_sensor": """
@@ -276,6 +293,7 @@ TRANSFORMACOES_SQL = {
         alertas_por_zona AS (
             SELECT
                 zona,
+                SUM(total_leituras)    AS total_leituras,
                 SUM(total_alertas)     AS total_alertas_sensor,
                 SUM(alertas_criticos)  AS alertas_criticos_sensor,
                 ROUND(AVG(pct_alerta), 2) AS pct_alerta_medio
@@ -289,41 +307,52 @@ TRANSFORMACOES_SQL = {
                 rondas_irregulares,
                 pct_irregular
             FROM int_rondas_irregulares
+        ),
+        zonas AS (
+            SELECT zona FROM incidentes_por_zona
+            UNION SELECT zona FROM alertas_por_zona
+            UNION SELECT zona FROM rondas_por_zona
+        ),
+        base AS (
+            SELECT
+                z.zona                                     AS zona,
+                COALESCE(i.total_incidentes, 0)            AS total_incidentes,
+                COALESCE(i.incidentes_criticos, 0)         AS incidentes_criticos,
+                COALESCE(a.total_alertas_sensor, 0)        AS total_alertas_sensor,
+                COALESCE(a.alertas_criticos_sensor, 0)     AS alertas_criticos_sensor,
+                COALESCE(r.rondas_irregulares, 0)          AS rondas_irregulares,
+                COALESCE(r.pct_irregular, 0)               AS pct_rondas_irregulares,
+                -- Score 0-100: pesos 40% incidentes criticos, 30% leituras criticas, 30% rondas irregulares
+                ROUND(
+                    0.4 * 100.0 * COALESCE(i.incidentes_criticos, 0) / NULLIF(i.total_incidentes, 0) +
+                    0.3 * 100.0 * COALESCE(a.alertas_criticos_sensor, 0) / NULLIF(a.total_leituras, 0) +
+                    0.3 * COALESCE(r.pct_irregular, 0)
+                , 2)                                       AS score_risco
+            FROM zonas z
+            LEFT JOIN incidentes_por_zona i ON i.zona = z.zona
+            LEFT JOIN alertas_por_zona    a ON a.zona = z.zona
+            LEFT JOIN rondas_por_zona     r ON r.zona = z.zona
+        ),
+        faixas AS (
+            SELECT *, NTILE(4) OVER (ORDER BY COALESCE(score_risco, 0) DESC) AS quartil
+            FROM base
         )
         SELECT
-            COALESCE(i.zona, a.zona, r.zona)           AS zona,
-            COALESCE(i.total_incidentes, 0)            AS total_incidentes,
-            COALESCE(i.incidentes_criticos, 0)         AS incidentes_criticos,
-            COALESCE(a.total_alertas_sensor, 0)        AS total_alertas_sensor,
-            COALESCE(a.alertas_criticos_sensor, 0)     AS alertas_criticos_sensor,
-            COALESCE(r.rondas_irregulares, 0)          AS rondas_irregulares,
-            COALESCE(r.pct_irregular, 0)               AS pct_rondas_irregulares,
-            ROUND(
-                (COALESCE(i.incidentes_criticos, 0) * 3.0) +
-                (COALESCE(a.alertas_criticos_sensor, 0) * 2.0) +
-                (COALESCE(r.pct_irregular, 0) * 0.5)
-            , 2)                                       AS score_risco,
-            CASE
-                WHEN (
-                    (COALESCE(i.incidentes_criticos, 0) * 3.0) +
-                    (COALESCE(a.alertas_criticos_sensor, 0) * 2.0) +
-                    (COALESCE(r.pct_irregular, 0) * 0.5)
-                ) >= 30 THEN 'CRITICO'
-                WHEN (
-                    (COALESCE(i.incidentes_criticos, 0) * 3.0) +
-                    (COALESCE(a.alertas_criticos_sensor, 0) * 2.0) +
-                    (COALESCE(r.pct_irregular, 0) * 0.5)
-                ) >= 20 THEN 'ALTO'
-                WHEN (
-                    (COALESCE(i.incidentes_criticos, 0) * 3.0) +
-                    (COALESCE(a.alertas_criticos_sensor, 0) * 2.0) +
-                    (COALESCE(r.pct_irregular, 0) * 0.5)
-                ) >= 10 THEN 'MEDIO'
+            zona,
+            total_incidentes,
+            incidentes_criticos,
+            total_alertas_sensor,
+            alertas_criticos_sensor,
+            rondas_irregulares,
+            pct_rondas_irregulares,
+            COALESCE(score_risco, 0)                       AS score_risco,
+            CASE quartil
+                WHEN 1 THEN 'CRITICO'
+                WHEN 2 THEN 'ALTO'
+                WHEN 3 THEN 'MEDIO'
                 ELSE 'BAIXO'
-            END                                        AS classificacao_risco
-        FROM incidentes_por_zona  i
-        FULL OUTER JOIN alertas_por_zona  a ON i.zona = a.zona
-        FULL OUTER JOIN rondas_por_zona   r ON COALESCE(i.zona, a.zona) = r.zona;
+            END                                            AS classificacao_risco
+        FROM faixas;
     """,
 
     "mart_relatorio_final": """
@@ -367,10 +396,13 @@ class DAGVigilancia:
         """Verifica que o grafo é acíclico (topological sort via Kahn's algorithm)."""
         in_degree = defaultdict(int)
         adj = defaultdict(list)
-        todos = set(self.nodes.keys())
+        # Lista (e não set) para que a ordem de execução seja determinística
+        todos = list(self.nodes.keys())
 
         for nid, node in self.nodes.items():
             for dep in node["dependencias"]:
+                if dep not in self.nodes:
+                    raise ValueError(f"Dependência desconhecida '{dep}' em '{nid}'")
                 adj[dep].append(nid)
                 in_degree[nid] += 1
 
@@ -404,10 +436,7 @@ class DAGVigilancia:
                 sql = self.transformacoes[node_id]
                 # Executa bloco SQL (pode ter múltiplos statements)
                 cursor = conn.cursor()
-                for stmt in sql.strip().split(";"):
-                    stmt = stmt.strip()
-                    if stmt:
-                        cursor.execute(stmt)
+                cursor.executescript(sql)
                 conn.commit()
 
                 # Conta linhas resultantes
@@ -499,28 +528,40 @@ class Neo4jDAGManager:
 
 
 # ─── Atualização do Visualizador HTML ─────────────────────────────────────────
-import re
+def _json_para_js(obj):
+    """JSON em uma única linha, seguro para embutir dentro de uma tag <script>."""
+    return json.dumps(obj, ensure_ascii=False).replace("</", "<\\/")
+
 
 def atualizar_html_visualizador(nodes, edges, relatorio, sql_dict, samples, html_path):
-    """Atualiza os dados de execução diretamente dentro do arquivo dag_vigilancia.html."""
+    """Atualiza os dados de execução diretamente dentro do arquivo dag_vigilancia.html.
+
+    Cada variável (`let NOME = ...;`) ocupa exatamente uma linha no HTML, então a
+    substituição é feita por linha inteira (não quebra com ';' dentro de strings).
+    """
     if not os.path.exists(html_path):
+        print(f"  ⚠️  HTML não encontrado: {html_path}")
         return
 
     try:
-        with open(html_path, "r", encoding="utf-8") as f:
+        with open(html_path, "r", encoding="utf-8", newline="") as f:
             content = f.read()
 
-        nodes_str = json.dumps(nodes, ensure_ascii=False)
-        edges_str = json.dumps(edges, ensure_ascii=False)
-        relatorio_str = json.dumps(relatorio, ensure_ascii=False)
-        samples_str = json.dumps(samples, ensure_ascii=False)
+        valores = {
+            "NODES": nodes,
+            "EDGES": edges,
+            "RELATORIO": relatorio,
+            "SQL_MAP": sql_dict,
+            "SAMPLES": samples,
+        }
+        for nome, valor in valores.items():
+            novo = f"let {nome} = {_json_para_js(valor)};"
+            padrao = re.compile(rf"^([ \t]*)let {nome} = [^\r\n]*;[ \t]*(?=\r?$)", re.MULTILINE)
+            content, n = padrao.subn(lambda m: m.group(1) + novo, content, count=1)
+            if n == 0:
+                print(f"  ⚠️  Variável '{nome}' não encontrada no HTML.")
 
-        content = re.sub(r'let NODES = .*?;', f'let NODES = {nodes_str};', content, count=1)
-        content = re.sub(r'let EDGES = .*?;', f'let EDGES = {edges_str};', content, count=1)
-        content = re.sub(r'let RELATORIO = .*?;', f'let RELATORIO = {relatorio_str};', content, count=1)
-        content = re.sub(r'let SAMPLES = .*?;', f'let SAMPLES = {samples_str};', content, count=1)
-
-        with open(html_path, "w", encoding="utf-8") as f:
+        with open(html_path, "w", encoding="utf-8", newline="") as f:
             f.write(content)
         print(f"  🌐 Visualizador HTML atualizado: {html_path}")
     except Exception as e:
@@ -533,9 +574,16 @@ def main():
     print("  🛡️  DAG – Pipeline de Vigilância Patrimonial")
     print("=" * 62)
 
-    # 1. Conecta ao SQLite
+    # 1. Conecta ao SQLite (sempre fechando a conexão, mesmo em caso de erro)
     conn = sqlite3.connect(DB_PATH)
-    conn.execute("PRAGMA journal_mode=WAL")
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+        _executar_pipeline(conn)
+    finally:
+        conn.close()
+
+
+def _executar_pipeline(conn):
 
     # 2. Instancia e executa o DAG
     dag = DAGVigilancia(DAG_NODES, TRANSFORMACOES_SQL)
@@ -565,20 +613,27 @@ def main():
     neo4j_ok = False
     nodes_neo4j, edges_neo4j = [], []
     print("\n📡 Publicando DAG no Neo4j Sandbox...")
+    manager = None
     try:
+        if GraphDatabase is None:
+            raise RuntimeError("driver 'neo4j' não instalado (pip install -r requirements.txt)")
+        if not (NEO4J_URI and NEO4J_PASS):
+            raise RuntimeError("credenciais não configuradas (NEO4J_URI / NEO4J_PASSWORD)")
         manager = Neo4jDAGManager(NEO4J_URI, NEO4J_USER, NEO4J_PASS)
         manager.driver.verify_connectivity()
         with manager.driver.session() as session:
             manager.limpar_dag(session)
             manager.criar_dag(session, DAG_NODES, resultados_exec)
             nodes_neo4j, edges_neo4j = manager.exportar_para_html(session)
-        manager.close()
         neo4j_ok = True
         print("  ✅ DAG publicado com sucesso no Neo4j!")
         print("     → Abra o Neo4j Browser e execute:")
         print("       MATCH (e:Etapa) OPTIONAL MATCH (e)-[r:ALIMENTA]->(b) RETURN e,r,b")
     except Exception as e:
         print(f"  ⚠️  Neo4j indisponível ({e}). Usando dados locais para o HTML.")
+    finally:
+        if manager is not None:
+            manager.close()
 
     # Se Neo4j falhou, usa os dados locais
     if not neo4j_ok:
@@ -628,8 +683,6 @@ def main():
     for r in relatorio_sql[:3]:
         print(f"     #{r['ranking_risco']} {r['zona']:30s} → {r['classificacao_risco']} (score: {r['score_risco']})")
     print("=" * 62)
-
-    conn.close()
 
 
 if __name__ == "__main__":

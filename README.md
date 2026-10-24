@@ -10,10 +10,11 @@
 ```text
 analytics-n1/
 ├── dados/
-│   ├── gerar_dados.py        ← Popula o banco com eventos brutos simulados (câmeras, sensores, rondas)
-│   └── vigilancia.db         ← Banco de dados SQLite contendo tabelas brutas e derivadas
-├── dag_pipeline.py           ← Motor do DAG: Algoritmo de Kahn, execução SQL e integração Neo4j
+│   ├── gerar_dados.py        ← Popula o banco com eventos brutos simulados (reproduzíveis, seed fixa)
+│   └── vigilancia.db         ← SQLite gerado localmente (ignorado pelo git)
+├── dag_pipeline.py          ← Motor do DAG: Algoritmo de Kahn, execução SQL e integração Neo4j
 ├── dag_vigilancia.html       ← Interface web interativa (DAG visual, execução animada, SQL e preview)
+├── requirements.txt          ← Dependências Python (neo4j)
 ├── README.md                 ← Documentação completa da avaliação
 ```
 
@@ -70,23 +71,25 @@ Para garantir que o fluxo seja estritamente um **Grafo Direcionado Acíclico (DA
 3. À medida que um nó é processado, o grau de dependência dos seus vizinhos é decrementado.
 4. Se o número de etapas ordenadas for menor que o total de nós, o algoritmo interrompe imediatamente com `ValueError("⚠️ CICLO DETECTADO")`.
 
-A ordem de execução calculada e validada é:
-$$\text{stg\_leituras\_sensor} \rightarrow \text{stg\_eventos\_camera} \rightarrow \text{stg\_rondas} \rightarrow \text{int\_alertas\_sensor} \rightarrow \text{int\_incidentes\_brutos} \rightarrow \text{int\_rondas\_irregulares} \rightarrow \text{mart\_zona\_risco} \rightarrow \text{mart\_relatorio\_final}$$
+A ordem de execução é determinística (segue a ordem de declaração dos nós) e validada:
+$$\text{stg\_eventos\_camera} \rightarrow \text{stg\_leituras\_sensor} \rightarrow \text{stg\_rondas} \rightarrow \text{int\_incidentes\_brutos} \rightarrow \text{int\_alertas\_sensor} \rightarrow \text{int\_rondas\_irregulares} \rightarrow \text{mart\_zona\_risco} \rightarrow \text{mart\_relatorio\_final}$$
 
 ---
 
 ## 📊 Regra de Negócio: Score Composto de Risco
 
-O cálculo da camada final combina pesos para diferentes dimensões de segurança:
+O score é uma média ponderada de **taxas (0–100)**, o que torna as dimensões comparáveis entre si:
 
-$$\text{Score de Risco} = (\text{Incidentes Críticos} \times 3.0) + (\text{Alertas Críticos de Sensor} \times 2.0) + (\%\text{ Rondas Irregulares} \times 0.5)$$
+$$\text{Score} = 0.4 \times \%\text{Incidentes Críticos} + 0.3 \times \%\text{Leituras Críticas de Sensor} + 0.3 \times \%\text{Rondas Irregulares}$$
 
-| Faixa de Score | Classificação | Diretriz Operacional Prescrita |
+A classificação é relativa, por **quartil do score** (`NTILE(4)`) entre as zonas:
+
+| Quartil | Classificação | Diretriz Operacional Prescrita |
 |---|---|---|
-| $\ge 30$ | 🔴 **CRÍTICO** | Reforço imediato de vigilância. Auditoria de câmeras e sensores. |
-| $\ge 20$ | 🟠 **ALTO** | Aumentar frequência de patrulha e revisar protocolos de resposta. |
-| $\ge 10$ | 🟡 **MÉDIO** | Manter monitoramento contínuo e verificar calibração dos sensores. |
-| $< 10$ | 🟢 **BAIXO** | Zona sob controle. Manter rotina padrão. |
+| 1º (maiores scores) | 🔴 **CRÍTICO** | Reforço imediato de vigilância. Auditoria de câmeras e sensores. |
+| 2º | 🟠 **ALTO** | Aumentar frequência de patrulha e revisar protocolos de resposta. |
+| 3º | 🟡 **MÉDIO** | Manter monitoramento contínuo e verificar calibração dos sensores. |
+| 4º | 🟢 **BAIXO** | Zona sob controle. Manter rotina padrão. |
 
 ---
 
@@ -117,6 +120,12 @@ A visualização HTML conta com recursos para inspeção e apresentação da orq
 
 ## 🚀 Como Executar
 
+### 0. Instalar dependências
+```bash
+pip install -r requirements.txt
+```
+Para publicar no Neo4j (opcional), defina `NEO4J_URI`, `NEO4J_USERNAME` e `NEO4J_PASSWORD` como variáveis de ambiente **ou** mantenha o arquivo `Blank Sandbox Sandbox Credentials.txt` (ignorado pelo git) na raiz. Sem credenciais, o pipeline segue normalmente usando dados locais.
+
 ### 1. Gerar a Base de Dados
 Cria as tabelas brutas no SQLite e popula eventos simulados de vigilância patrimonial:
 ```bash
@@ -130,7 +139,7 @@ python dag_pipeline.py
 ```
 
 ### 3. Abrir a Visualização
-Basta abrir o arquivo [dag_vigilancia.html](file:///c:/Users/miguel.lopes/Documents/analytics-n1/dag_vigilancia.html) em qualquer navegador web.
+Basta abrir o arquivo [dag_vigilancia.html](dag_vigilancia.html) em qualquer navegador web.
 
 ---
 

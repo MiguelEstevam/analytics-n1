@@ -32,9 +32,11 @@ TIPOS_EVENTO = ["MOVIMENTO_SUSPEITO", "ACESSO_NEGADO", "ALARME_PERIMETRO", "FALH
 TIPOS_SENSOR = ["PIR", "MAGNETICO", "TEMPERATURA", "FUMACA", "VIBRAÇÃO"]
 STATUS_INCIDENTE = ["ABERTO", "EM_ATENDIMENTO", "RESOLVIDO", "FALSO_POSITIVO"]
 
+# Data-base fixa: com random.seed(42) isso torna os dados 100% reproduzíveis
+DATA_BASE = datetime(2026, 1, 1)
+
 def gerar_periodo(dias=30):
-    inicio = datetime.now() - timedelta(days=dias)
-    return inicio
+    return DATA_BASE - timedelta(days=dias)
 
 def conn_db():
     return sqlite3.connect(DB_PATH)
@@ -126,7 +128,7 @@ def popular_eventos_camera(conn, n=500):
         zona = random.choice(ZONAS)
         tipo = random.choice(TIPOS_EVENTO)
         duracao = random.randint(2, 120)
-        confianca = round(random.uniform(0.55, 0.99), 2)
+        confianca = round(random.uniform(0.40, 0.99), 2)
         funcionario = random.choice(FUNCIONARIOS)[0] if random.random() > 0.4 else None
 
         registros.append((camera, zona, tipo, ts.strftime("%Y-%m-%d %H:%M:%S"), duracao, confianca, funcionario))
@@ -180,11 +182,13 @@ def popular_rondas(conn, n=200):
         zona = random.choice(ZONAS)
         status = random.choice(status_opcoes)
         obs = "Nenhuma ocorrência" if status == "CONCLUIDA" else "Ronda não finalizada no prazo"
+        # Ronda não realizada não tem horário de término (duração fica NULL no pipeline)
+        fim_str = None if status == "NAO_REALIZADA" else ts_fim.strftime("%Y-%m-%d %H:%M:%S")
 
         registros.append((
             funcionario, zona,
             ts_inicio.strftime("%Y-%m-%d %H:%M:%S"),
-            ts_fim.strftime("%Y-%m-%d %H:%M:%S"),
+            fim_str,
             status, obs
         ))
 
