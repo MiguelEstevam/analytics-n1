@@ -68,12 +68,47 @@ if NEO4J_URI and not re.search(r":\d{1,5}$", NEO4J_URI):
 # ─── Definição do DAG ────────────────────────────────────────────────────────
 DAG_NODES = [
     {
+        "id":          "eventos_camera",
+        "label":       "Raw: Eventos de Câmera",
+        "camada":      "raw",
+        "descricao":   "Tabela bruta de origem com os eventos capturados pelas câmeras de segurança.",
+        "dependencias": []
+    },
+    {
+        "id":          "leituras_sensor",
+        "label":       "Raw: Leituras de Sensor",
+        "camada":      "raw",
+        "descricao":   "Tabela bruta de origem com as leituras dos sensores (PIR, magnético, temperatura, etc.).",
+        "dependencias": []
+    },
+    {
+        "id":          "rondas",
+        "label":       "Raw: Rondas",
+        "camada":      "raw",
+        "descricao":   "Tabela bruta de origem com o registro das rondas realizadas pelos vigilantes.",
+        "dependencias": []
+    },
+    {
+        "id":          "funcionarios",
+        "label":       "Raw: Funcionários",
+        "camada":      "raw",
+        "descricao":   "Tabela bruta de origem com o cadastro de funcionários/vigilantes.",
+        "dependencias": []
+    },
+    {
+        "id":          "incidentes",
+        "label":       "Raw: Incidentes",
+        "camada":      "raw",
+        "descricao":   "Tabela bruta de origem com os incidentes registrados nas zonas patrimoniais.",
+        "dependencias": []
+    },
+    {
         "id":          "stg_eventos_camera",
         "label":       "Staging: Eventos de Câmera",
         "camada":      "staging",
         "descricao":   "Carrega e padroniza os eventos brutos capturados pelas câmeras de segurança. "
                        "Filtra registros com confiança < 60% e normaliza timestamps.",
-        "dependencias": []
+        "dependencias": ["eventos_camera"]
     },
     {
         "id":          "stg_leituras_sensor",
@@ -81,7 +116,7 @@ DAG_NODES = [
         "camada":      "staging",
         "descricao":   "Carrega as leituras brutas de sensores (PIR, magnético, temperatura, etc.). "
                        "Padroniza unidades e elimina leituras duplicadas.",
-        "dependencias": []
+        "dependencias": ["leituras_sensor"]
     },
     {
         "id":          "stg_rondas",
@@ -89,7 +124,7 @@ DAG_NODES = [
         "camada":      "staging",
         "descricao":   "Carrega o registro de rondas realizadas pelos vigilantes, "
                        "calcula duração em minutos e padroniza status.",
-        "dependencias": []
+        "dependencias": ["rondas", "funcionarios"]
     },
     {
         "id":          "int_incidentes_brutos",
@@ -97,7 +132,7 @@ DAG_NODES = [
         "camada":      "intermediaria",
         "descricao":   "Consolida incidentes cruzando eventos de câmera e leituras de sensor. "
                        "Classifica gravidade e identifica zona de ocorrência.",
-        "dependencias": ["stg_eventos_camera", "stg_leituras_sensor"]
+        "dependencias": ["stg_eventos_camera", "stg_leituras_sensor", "incidentes", "funcionarios"]
     },
     {
         "id":          "int_alertas_sensor",
@@ -433,11 +468,12 @@ class DAGVigilancia:
             inicio = time.time()
 
             try:
-                sql = self.transformacoes[node_id]
-                # Executa bloco SQL (pode ter múltiplos statements)
+                sql = self.transformacoes.get(node_id)
                 cursor = conn.cursor()
-                cursor.executescript(sql)
-                conn.commit()
+                if sql:
+                    # Executa bloco SQL (pode ter múltiplos statements)
+                    cursor.executescript(sql)
+                    conn.commit()
 
                 # Conta linhas resultantes
                 tabela = node_id

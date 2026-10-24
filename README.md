@@ -22,18 +22,32 @@ analytics-n1/
 
 ## 🔗 O Grafo de Dependências (DAG)
 
-O pipeline é composto por **8 etapas de transformação** organizadas em **3 camadas lógicas**:
+O pipeline parte de **5 tabelas brutas (Raw)** e é composto por **8 etapas de transformação** organizadas em **4 camadas lógicas**:
 
 ```text
-[1. Staging]                      [2. Camada Intermediária]        [3. Data Marts]
-─────────────────────────────────────────────────────────────────────────────────
-stg_eventos_camera  ─────────┐
-                              ├──→ int_incidentes_brutos ──┐
-stg_leituras_sensor ─────────┼──→ int_alertas_sensor ─────┼──→ mart_zona_risco → mart_relatorio_final
-                              │                            │
-stg_rondas ──────────────────┼────────────────────────────┘
-                              └──→ int_rondas_irregulares ─┘
+[1. Raw]              [2. Staging]           [3. Intermediária]          [4. Data Marts]
+─────────────────────────────────────────────────────────────────────────────────────────
+eventos_camera  ───→ stg_eventos_camera ──┐
+                                          ├──→ int_incidentes_brutos ──┐
+leituras_sensor ───→ stg_leituras_sensor ─┤                            │
+                                          └──→ int_alertas_sensor ─────┼──→ mart_zona_risco → mart_relatorio_final
+rondas ──────────┐                                                     │
+funcionarios ────┴─→ stg_rondas ─────────────→ int_rondas_irregulares ─┘
+incidentes ──────────────────────────────────→ int_incidentes_brutos
+funcionarios ────────────────────────────────→ int_incidentes_brutos
 ```
+
+### 🗄️ Tabelas Brutas (Camada Raw)
+
+São as tabelas de origem criadas por `dados/gerar_dados.py` no SQLite. Não possuem SQL de transformação: no DAG são nós raiz (sem dependências) e o pipeline apenas conta suas linhas.
+
+| Tabela | Linhas | Colunas principais | O que representa |
+|---|---|---|---|
+| `eventos_camera` | 500 | `id`, `camera_id`, `zona`, `tipo_evento`, `timestamp`, `duracao_segundos`, `confianca`, `funcionario_notificado` | Eventos detectados pelas câmeras (movimento suspeito, acesso negado, alarmes), com a confiança da detecção. |
+| `leituras_sensor` | 800 | `id`, `sensor_id`, `tipo_sensor`, `zona`, `valor`, `alerta`, `timestamp` | Leituras de sensores (PIR, magnético, fumaça, temperatura etc.); pode conter duplicatas. |
+| `rondas` | 200 | `id`, `funcionario_id`, `zona`, `inicio`, `fim`, `status`, `observacoes` | Rondas realizadas (ou não) pelos vigilantes em cada zona. |
+| `funcionarios` | 7 | `id`, `nome`, `cargo`, `ativo` | Cadastro dos vigilantes/funcionários; usado para enriquecer rondas e incidentes. |
+| `incidentes` | 150 | `id`, `tipo`, `zona`, `data_hora`, `gravidade`, `status`, `origem`, `camera_id`, `sensor_id`, `funcionario_responsavel` | Incidentes registrados, com gravidade (1–5) e referência à câmera/sensor de origem. |
 
 ### 📋 Nós e suas Responsabilidades
 
@@ -52,6 +66,12 @@ stg_rondas ──────────────────┼────
 
 | Nó Origem (Upstream) | Nó Destino (Downstream) | Justificativa |
 |---|---|---|
+| `eventos_camera` | `stg_eventos_camera` | Fonte bruta dos eventos de câmera a padronizar. |
+| `leituras_sensor` | `stg_leituras_sensor` | Fonte bruta das leituras a deduplicar e classificar. |
+| `rondas` | `stg_rondas` | Fonte bruta das rondas a enriquecer e medir. |
+| `funcionarios` | `stg_rondas` | Fornece nome e cargo do vigilante da ronda (`JOIN`). |
+| `incidentes` | `int_incidentes_brutos` | Fonte bruta dos incidentes a consolidar. |
+| `funcionarios` | `int_incidentes_brutos` | Fornece o nome do responsável pelo incidente (`LEFT JOIN`). |
 | `stg_eventos_camera` | `int_incidentes_brutos` | Fornece confiança e validação visual para incidentes. |
 | `stg_leituras_sensor` | `int_incidentes_brutos` | Cruza leituras de sensores no momento do incidente. |
 | `stg_leituras_sensor` | `int_alertas_sensor` | Base para cálculo de médias, máximas e percentuais de alerta por zona. |
@@ -67,12 +87,12 @@ stg_rondas ──────────────────┼────
 
 Para garantir que o fluxo seja estritamente um **Grafo Direcionado Acíclico (DAG)** e que nenhuma etapa execute antes de suas dependências:
 1. É construído o grafo de adjacências e calculado o grau de entrada (*in-degree*) de cada nó.
-2. Nós sem dependências (*in-degree* = 0, camada *Staging*) entram na fila de execução.
+2. Nós sem dependências (*in-degree* = 0, camada *Raw*) entram na fila de execução.
 3. À medida que um nó é processado, o grau de dependência dos seus vizinhos é decrementado.
 4. Se o número de etapas ordenadas for menor que o total de nós, o algoritmo interrompe imediatamente com `ValueError("⚠️ CICLO DETECTADO")`.
 
 A ordem de execução é determinística (segue a ordem de declaração dos nós) e validada:
-$$\text{stg\_eventos\_camera} \rightarrow \text{stg\_leituras\_sensor} \rightarrow \text{stg\_rondas} \rightarrow \text{int\_incidentes\_brutos} \rightarrow \text{int\_alertas\_sensor} \rightarrow \text{int\_rondas\_irregulares} \rightarrow \text{mart\_zona\_risco} \rightarrow \text{mart\_relatorio\_final}$$
+$$\text{eventos\_camera} \rightarrow \text{leituras\_sensor} \rightarrow \text{rondas} \rightarrow \text{funcionarios} \rightarrow \text{incidentes} \rightarrow \text{stg\_eventos\_camera} \rightarrow \text{stg\_leituras\_sensor} \rightarrow \text{stg\_rondas} \rightarrow \text{int\_incidentes\_brutos} \rightarrow \text{int\_alertas\_sensor} \rightarrow \text{int\_rondas\_irregulares} \rightarrow \text{mart\_zona\_risco} \rightarrow \text{mart\_relatorio\_final}$$
 
 ---
 
@@ -106,8 +126,8 @@ A classificação é relativa, por **quartil do score** (`NTILE(4)`) entre as zo
 ## 🌐 Interface Web Interativa (`dag_vigilancia.html`)
 
 A visualização HTML conta com recursos para inspeção e apresentação da orquestração:
-- **Layout Determinístico Left-to-Right**: 3 colunas lógicas por camada com conexões suaves em curvas Bézier.
-- **Botão `▶ Executar Pipeline`**: Executa passo a passo o grafo animando nós ativos e fluxos nas arestas, transmitindo logs em tempo real para o console integrado.
+- **Layout Determinístico Left-to-Right**: 4 colunas lógicas por camada (Raw, Staging, Intermediária, Marts) com conexões suaves em curvas Bézier. As tabelas brutas aparecem em âmbar na primeira coluna e têm filtro próprio (`Raw`).
+- **Botão `▶ Executar Pipeline`**: Executa o pipeline real no servidor local (`python dag_pipeline.py --serve`) e anima nós e arestas com os resultados reais, transmitindo o log para o console integrado.
 - **Botão `↺ Zerar`**: Reseta o status de todas as etapas para `PENDENTE`, permitindo novas demonstrações.
 - **Inspetor Lateral (Drawer)**:
   - **Aba Visão Geral**: Métricas de linhas, tempo de execução, descrição e links de linhagem upstream/downstream.
@@ -139,7 +159,10 @@ python dag_pipeline.py
 ```
 
 ### 3. Abrir a Visualização
-Basta abrir o arquivo [dag_vigilancia.html](dag_vigilancia.html) em qualquer navegador web.
+Para apenas visualizar, abra [dag_vigilancia.html](dag_vigilancia.html) no navegador. Para **executar o pipeline pelo botão do HTML**, use o servidor local:
+```bash
+python dag_pipeline.py --serve
+```
 
 ---
 
