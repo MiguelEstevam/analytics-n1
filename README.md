@@ -13,7 +13,11 @@ analytics-n1/
 │   ├── gerar_dados.py        ← Popula o banco com eventos brutos simulados (reproduzíveis, seed fixa)
 │   └── vigilancia.db         ← SQLite gerado localmente (ignorado pelo git)
 ├── dag_pipeline.py          ← Motor do DAG: Algoritmo de Kahn, execução SQL e integração Neo4j
-├── dag_vigilancia.html       ← Interface web interativa (DAG visual, execução animada, SQL e preview)
+├── dag_vigilancia.html       ← Estrutura (markup) da interface web
+├── static/
+│   ├── style.css             ← Estilos da interface
+│   ├── app.js                ← Lógica da interface (D3, execução, inspetor, zerar)
+│   └── dados.js              ← Dados da última execução (atualizado automaticamente pelo pipeline)
 ├── requirements.txt          ← Dependências Python (neo4j)
 ├── README.md                 ← Documentação completa da avaliação
 ```

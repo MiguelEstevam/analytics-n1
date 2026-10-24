@@ -696,7 +696,7 @@ def _executar_pipeline(conn):
 
     # 5. Sincroniza dados da execução no HTML
     print("\n🌐 Sincronizando visualização HTML...")
-    html_path = os.path.join(os.path.dirname(__file__), "dag_vigilancia.html")
+    html_path = os.path.join(os.path.dirname(__file__), "static", "dados.js")
     atualizar_html_visualizador(
         nodes_neo4j,
         edges_neo4j,
@@ -756,6 +756,16 @@ def servir(porta=8000):
             if self.path in ("/", "/index.html", "/dag_vigilancia.html"):
                 with open(html_path, "rb") as f:
                     self._enviar(200, f.read(), "text/html; charset=utf-8")
+            elif self.path.startswith("/static/"):
+                nome = os.path.basename(self.path.split("?")[0])
+                caminho = os.path.join(base, "static", nome)
+                tipos = {".css": "text/css", ".js": "application/javascript"}
+                tipo = tipos.get(os.path.splitext(nome)[1])
+                if tipo and os.path.isfile(caminho):
+                    with open(caminho, "rb") as f:
+                        self._enviar(200, f.read(), tipo + "; charset=utf-8")
+                else:
+                    self._enviar(404, b"Not found", "text/plain")
             else:
                 self._enviar(404, b"Not found", "text/plain")
 
