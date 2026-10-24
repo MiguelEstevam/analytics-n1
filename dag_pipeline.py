@@ -578,7 +578,7 @@ def main():
     conn = sqlite3.connect(DB_PATH)
     try:
         conn.execute("PRAGMA journal_mode=WAL")
-        _executar_pipeline(conn)
+        return _executar_pipeline(conn)
     finally:
         conn.close()
 
@@ -684,6 +684,79 @@ def _executar_pipeline(conn):
         print(f"     #{r['ranking_risco']} {r['zona']:30s} → {r['classificacao_risco']} (score: {r['score_risco']})")
     print("=" * 62)
 
+    return {
+        "nodes": nodes_neo4j,
+        "edges": edges_neo4j,
+        "relatorio": relatorio_sql,
+        "samples": samples_dict,
+        "neo4j": neo4j_ok,
+    }
+
+
+# ─── Servidor local (permite executar o pipeline pelo HTML) ───────────────────
+def servir(porta=8000):
+    """Serve o HTML e expõe POST /api/executar para rodar o pipeline real."""
+    import io
+    import threading
+    import traceback
+    import webbrowser
+    from contextlib import redirect_stdout
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    base = os.path.dirname(os.path.abspath(__file__))
+    html_path = os.path.join(base, "dag_vigilancia.html")
+    lock = threading.Lock()
+
+    class Handler(BaseHTTPRequestHandler):
+        def _enviar(self, codigo, corpo, tipo):
+            self.send_response(codigo)
+            self.send_header("Content-Type", tipo)
+            self.send_header("Content-Length", str(len(corpo)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(corpo)
+
+        def do_GET(self):
+            if self.path in ("/", "/index.html", "/dag_vigilancia.html"):
+                with open(html_path, "rb") as f:
+                    self._enviar(200, f.read(), "text/html; charset=utf-8")
+            else:
+                self._enviar(404, b"Not found", "text/plain")
+
+        def do_POST(self):
+            if self.path != "/api/executar":
+                return self._enviar(404, b"Not found", "text/plain")
+            buf = io.StringIO()
+            with lock:
+                try:
+                    with redirect_stdout(buf):
+                        dados = main()
+                    resp = {"ok": True, "log": buf.getvalue(), **dados}
+                    codigo = 200
+                except Exception as e:
+                    resp = {"ok": False, "erro": str(e), "log": buf.getvalue(),
+                            "trace": traceback.format_exc()}
+                    codigo = 500
+            self._enviar(codigo, json.dumps(resp, ensure_ascii=False, default=str).encode("utf-8"),
+                         "application/json; charset=utf-8")
+
+        def log_message(self, *args):
+            pass
+
+    servidor = ThreadingHTTPServer(("127.0.0.1", porta), Handler)
+    url = f"http://127.0.0.1:{porta}/"
+    print(f"🌐 Servidor em {url}  (Ctrl+C para encerrar)")
+    webbrowser.open(url)
+    try:
+        servidor.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        servidor.server_close()
+
 
 if __name__ == "__main__":
-    main()
+    if "--serve" in sys.argv:
+        servir()
+    else:
+        main()
